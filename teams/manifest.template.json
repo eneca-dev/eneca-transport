@@ -1,0 +1,47 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "{{CLIENT_ID}}",
+  "developer": {
+    "name": "ЭНЭКА",
+    "websiteUrl": "https://{{DOMAIN}}",
+    "privacyUrl": "https://{{DOMAIN}}/privacy",
+    "termsOfUseUrl": "https://{{DOMAIN}}/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "Командировки",
+    "full": "ЭНЭКА.Командировки"
+  },
+  "description": {
+    "short": "Заявки на командировки и бронирование служебных автомобилей",
+    "full": "Приложение ведёт командировку от заявки до возврата ключей: заявка, бронирование свободного автомобиля и водителя, подготовка документов финотделом, выдача и приём ключей на рецепции, показание одометра и расчёт пробега. Для АХО — календарь броней, справочники машин и водителей, история поездок."
+  },
+  "accentColor": "#0F4C81",
+  "staticTabs": [
+    {
+      "entityId": "trips",
+      "name": "Мои поездки",
+      "contentUrl": "https://{{DOMAIN}}/",
+      "scopes": ["personal"]
+    }
+  ],
+  "bots": [
+    {
+      "botId": "{{CLIENT_ID}}",
+      "scopes": ["personal"],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": ["{{DOMAIN}}"],
+  "webApplicationInfo": {
+    "id": "{{CLIENT_ID}}",
+    "resource": "api://{{DOMAIN}}/botid-{{CLIENT_ID}}"
+  }
+}
