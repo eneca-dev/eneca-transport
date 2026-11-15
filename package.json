@@ -22,9 +22,10 @@
     "react-dom": "19.3.0",
     "zod": "^4.6.7"
   },
-  "comment:overrides": "https-proxy-agent 9.x — только ESM, а @typespec/ts-http-runtime (через botbuilder → @azure/core-rest-pipeline) подключает его через require. Загрузчик внешних модулей Next этого не умеет: /api/messages падал с ERR_REQUIRE_ESM на Vercel. 7.0.6 — CommonJS, его же использует botframework-connector. Снять, когда ts-http-runtime перейдёт на dynamic import.",
+  "comment:overrides": "@typespec/ts-http-runtime (через botbuilder → @azure/core-rest-pipeline) подключает оба прокси-агента через require, а их версии 9.x — только ESM. Загрузчик внешних модулей Next этого не умеет: /api/messages падал с ERR_REQUIRE_ESM на Vercel, при этом локально на Node 22 работал. Ветка 7.x — CommonJS, её же использует botframework-connector. Снять, когда ts-http-runtime перейдёт на dynamic import.",
   "overrides": {
     "@typespec/ts-http-runtime": {
+      "http-proxy-agent": "7.0.2",
       "https-proxy-agent": "7.0.6"
     }
   },
