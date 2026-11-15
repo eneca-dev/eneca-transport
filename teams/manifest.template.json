@@ -32,7 +32,7 @@
   ],
   "bots": [
     {
-      "botId": "{{CLIENT_ID}}",
+      "botId": "{{BOT_ID}}",
       "scopes": ["personal"],
       "supportsFiles": false,
       "isNotificationOnly": false

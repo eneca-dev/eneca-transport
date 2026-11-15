@@ -11,6 +11,10 @@ const BUILD_DIR = join(TEAMS_DIR, 'build');
 
 const domain = process.env.NEXT_PUBLIC_APP_DOMAIN;
 const clientId = process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID;
+// Бот может жить на отдельной регистрации: Developer Portal заводит её сам
+// и чужой идентификатор туда не принимает. Если бот на той же регистрации,
+// что и вкладка, переменная не нужна.
+const botId = process.env.NEXT_PUBLIC_TEAMS_BOT_ID || clientId;
 
 if (!domain || !clientId) {
   console.error('Нужны NEXT_PUBLIC_APP_DOMAIN и NEXT_PUBLIC_ENTRA_CLIENT_ID. См. .env.example');
@@ -92,7 +96,8 @@ mkdirSync(BUILD_DIR, { recursive: true });
 
 const manifest = readFileSync(join(TEAMS_DIR, 'manifest.template.json'), 'utf8')
   .replaceAll('{{DOMAIN}}', domain)
-  .replaceAll('{{CLIENT_ID}}', clientId);
+  .replaceAll('{{CLIENT_ID}}', clientId)
+  .replaceAll('{{BOT_ID}}', botId);
 
 writeFileSync(join(BUILD_DIR, 'manifest.json'), manifest);
 
@@ -108,6 +113,7 @@ for (const [name, data] of [
 console.log(`Готово: ${BUILD_DIR}`);
 console.log(`  домен    ${domain}`);
 console.log(`  client id ${clientId}`);
+console.log(`  bot id    ${botId}`);
 console.log('');
 console.log('Собрать архив для загрузки в Teams:');
 console.log(

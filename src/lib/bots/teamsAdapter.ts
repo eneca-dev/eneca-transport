@@ -4,9 +4,12 @@ import { CloudAdapter, ConfigurationBotFrameworkAuthentication } from 'botbuilde
 import type { ConfigurationBotFrameworkAuthenticationOptions } from 'botbuilder';
 
 /**
- * Адаптер Bot Framework для Teams-бота. Регистрация приложения в Entra ID
- * одна и та же для вкладки и для бота, поэтому MICROSOFT_APP_ID совпадает
- * с NEXT_PUBLIC_ENTRA_CLIENT_ID.
+ * Адаптер Bot Framework для Teams-бота. Все параметры берутся из переменных
+ * окружения, поэтому смена регистрации бота не требует правок кода.
+ * Бот заведён в Teams Developer Portal, и MICROSOFT_APP_ID не совпадает с
+ * NEXT_PUBLIC_ENTRA_CLIENT_ID вкладки: портал создаёт боту отдельную
+ * регистрацию приложения.
+ * Боту SSO не нужен — сотрудник определяется по данным из активности Teams.
  */
 const credentials: ConfigurationBotFrameworkAuthenticationOptions = {
   MicrosoftAppType: process.env.MICROSOFT_APP_TYPE,
