@@ -64,9 +64,15 @@ try {
     console.log('  последняя ошибка      нет');
   }
 } catch (error) {
-  console.error(String(error.message));
+  const message = String(error.message);
+  console.error(message);
   console.error('');
-  console.error('404 Not Found — неверный токен: проверить TELEGRAM_BOT_TOKEN,');
-  console.error('он должен быть целиком, вида <цифры>:<строка>, без скобок и пробелов.');
+  if (message.includes('404')) {
+    console.error('404 Not Found — неверный токен: проверить TELEGRAM_BOT_TOKEN,');
+    console.error('он должен быть целиком, вида <цифры>:<строка>, без скобок и пробелов.');
+  } else if (message.includes('fetch failed')) {
+    console.error('До api.telegram.org не удалось дозвониться. Это сеть, а не токен:');
+    console.error('повторить запуск. Состояние вебхука на стороне Telegram не изменилось.');
+  }
   process.exit(1);
 }
