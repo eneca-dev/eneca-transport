@@ -10,22 +10,37 @@ import type { Activity } from 'botbuilder';
  * сохраняться в `teams_conversations`, и из ответа это уйдёт.
  */
 export async function POST(request: Request) {
-  const activity = (await request.json()) as Activity;
   const authorization = request.headers.get('authorization') ?? '';
 
-  await getTeamsAdapter().processActivityDirect(authorization, activity, async (context) => {
-    if (context.activity.type === 'message') {
-      const { conversation, serviceUrl } = context.activity;
-      await context.sendActivity(
-        [
-          `Связь есть. Вы написали: «${context.activity.text}»`,
-          '',
-          `conversation id: ${conversation?.id ?? '—'}`,
-          `service url: ${serviceUrl ?? '—'}`,
-        ].join('\n\n'),
-      );
-    }
-  });
+  let activity: Activity;
+  try {
+    activity = (await request.json()) as Activity;
+  } catch {
+    return new Response(null, { status: 400 });
+  }
+
+  try {
+    await getTeamsAdapter().processActivityDirect(authorization, activity, async (context) => {
+      if (context.activity.type === 'message') {
+        const { conversation, serviceUrl } = context.activity;
+        await context.sendActivity(
+          [
+            `Связь есть. Вы написали: «${context.activity.text}»`,
+            '',
+            `conversation id: ${conversation?.id ?? '—'}`,
+            `service url: ${serviceUrl ?? '—'}`,
+          ].join('\n\n'),
+        );
+      }
+    });
+  } catch (error) {
+    // Ошибки внутри обработчика перехватывает onTurnError адаптера, поэтому сюда
+    // доходит практически только отказ аутентификации. Отвечаем 401, а не 500:
+    // при 5xx Bot Framework повторяет доставку, и одно и то же сообщение
+    // обрабатывается несколько раз.
+    console.error('Teams-бот: активность отклонена', error);
+    return new Response(null, { status: 401 });
+  }
 
   return new Response(null, { status: 200 });
 }

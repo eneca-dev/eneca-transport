@@ -304,6 +304,12 @@ node --env-file=.env.local scripts/check-env.mjs      # формат перем�
 node --env-file=.env.local scripts/check-access.mjs   # работают ли секреты
 ```
 
+**15.11: регион функций Vercel — `iad1` (Вирджиния), а база во Франкфурте.**
+Видно по заголовку `X-Vercel-Id` в ответе продакшена. Значит каждый запрос к
+Supabase идёт через Атлантику и обратно. Поправить в Vercel → Settings →
+Functions → Function Region: поставить `fra1`. Не блокирует И0, но до пилота
+сделать обязательно.
+
 `check-access.mjs` делает четыре читающих запроса: токен приложения в Entra и
 `GET /users` в Graph (заодно видно, выдано ли согласие на `User.Read.All` и
 приходят ли `jobTitle` и `department`), токен Bot Connector для бота,
