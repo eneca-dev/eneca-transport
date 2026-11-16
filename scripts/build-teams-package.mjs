@@ -3,7 +3,7 @@
 // Запуск: node --env-file=.env.local scripts/build-teams-package.mjs
 
 import { deflateSync } from 'node:zlib';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 const TEAMS_DIR = 'teams';
@@ -108,6 +108,13 @@ for (const [name, data] of [
   const custom = join(TEAMS_DIR, name);
   const target = join(BUILD_DIR, name);
   writeFileSync(target, existsSync(custom) ? readFileSync(custom) : data);
+}
+
+// Прошлый архив удаляется: иначе Compress-Archive с маской `build/*` упакует
+// его внутрь нового, и Teams откажется принимать такой пакет.
+const stale = join(BUILD_DIR, 'eneca-transport.zip');
+if (existsSync(stale)) {
+  rmSync(stale);
 }
 
 console.log(`Готово: ${BUILD_DIR}`);

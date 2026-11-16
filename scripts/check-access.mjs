@@ -20,6 +20,22 @@ function fail(what, detail, hint) {
   if (hint) console.log(`        ${hint}`);
 }
 
+/** Сетевой сбой, а не отказ сервиса: подсказки про секреты к нему не относятся. */
+function isNetworkError(error) {
+  return /fetch failed/.test(String(error?.message));
+}
+
+/** Запрос, который не роняет скрипт при обрыве сети. */
+async function request(what, url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    if (!isNetworkError(error)) throw error;
+    fail(what, 'сеть недоступна', `До ${new URL(url).host} не удалось дозвониться. Это сеть, а не доступы: повторить запуск.`);
+    return undefined;
+  }
+}
+
 /** Токен приложения по client_credentials. */
 async function appToken(authority, clientId, clientSecret, scope) {
   const response = await fetch(`https://login.microsoftonline.com/${authority}/oauth2/v2.0/token`, {
@@ -54,19 +70,23 @@ try {
   );
   ok('Entra ID: секрет', 'токен получен');
 } catch (error) {
+  const net = isNetworkError(error);
   fail(
     'Entra ID: секрет',
-    String(error.message),
-    'AADSTS7000215 — неверный секрет: вставлено значение не от этой регистрации или Secret ID вместо Value.',
+    net ? 'сеть недоступна' : String(error.message),
+    net
+      ? 'До login.microsoftonline.com не удалось дозвониться. Это сеть, а не секрет: повторить запуск.'
+      : 'AADSTS7000215 — неверный секрет: вставлено значение не от этой регистрации или Secret ID вместо Value.',
   );
 }
 
 if (graphToken) {
-  const response = await fetch(
+  const response = await request(
+    'Graph: справочник',
     'https://graph.microsoft.com/v1.0/users?$top=1&$select=id,jobTitle,department',
     { headers: { authorization: `Bearer ${graphToken}` } },
   );
-  if (response.ok) {
+  if (response?.ok) {
     const body = await response.json();
     const user = body.value?.[0];
     // Проверяется не только доступ, но и наличие полей: User.ReadBasic.All их
@@ -75,7 +95,7 @@ if (graphToken) {
       ? ['jobTitle', 'department'].filter((f) => f in user).join(', ') || 'нет полей должности'
       : 'справочник пуст';
     ok('Graph: справочник', `доступ есть, поля: ${fields}`);
-  } else {
+  } else if (response) {
     const body = await response.text();
     const forbidden = response.status === 403;
     fail(
@@ -95,8 +115,9 @@ const botAuthority =
     ? process.env.MICROSOFT_APP_TENANT_ID
     : 'botframework.com';
 
+let botToken;
 try {
-  await appToken(
+  botToken = await appToken(
     botAuthority,
     process.env.MICROSOFT_APP_ID,
     process.env.MICROSOFT_APP_PASSWORD,
@@ -104,22 +125,53 @@ try {
   );
   ok('Teams-бот: секрет', `токен получен через ${botAuthority}`);
 } catch (error) {
+  const net = isNetworkError(error);
   fail(
     'Teams-бот: секрет',
-    String(error.message),
-    'Проверить секрет со страницы бота в Developer Portal и MICROSOFT_APP_TYPE.',
+    net ? 'сеть недоступна' : String(error.message),
+    net
+      ? 'До login.microsoftonline.com не удалось дозвониться. Это сеть, а не секрет: повторить запуск.'
+      : 'Проверить секрет со страницы бота в Developer Portal и MICROSOFT_APP_TYPE.',
   );
+}
+
+// Полученный токен ещё ничего не доказывает: его выдаёт Entra, а признаёт или
+// нет — Bot Connector, и это разные стороны. 16.11 токен был безупречен, а
+// коннектор отвергал бота: регистрация из Developer Portal не попала в Bot
+// Framework Service. Поэтому делается настоящий вызов — к заведомо
+// несуществующему чату. Признанному боту коннектор ответит 403 или 404,
+// непризнанному — 401 ещё на слое аутентификации.
+if (botToken) {
+  const response = await request(
+    'Teams-бот: коннектор',
+    'https://smba.trafficmanager.net/emea/v3/conversations/a:does-not-exist/members',
+    { headers: { authorization: `Bearer ${botToken}` } },
+  );
+  if (!response) {
+    // Сетевой сбой уже отмечен в request().
+  } else if (response.status === 401) {
+    fail(
+      'Teams-бот: коннектор',
+      '401 — бот не признан',
+      'Регистрация не числится в Bot Framework Service: ни входящие, ни исходящие работать не будут. См. docs/plan.md, пункт 4.',
+    );
+  } else {
+    ok('Teams-бот: коннектор', `бот признан (${response.status} на несуществующий чат)`);
+  }
 }
 
 // --- 3. Supabase: ключ и применена ли схема ---------------------------------
 
 {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const response = await fetch(
+  const response = await request(
+    'Supabase: ключ',
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/employees?select=id&limit=1`,
     { headers: { apikey: key, authorization: `Bearer ${key}` } },
   );
-  if (response.ok) {
+  if (!response) {
+    // Сетевой сбой уже отмечен в request().
+  } else if (response.ok) {
     ok('Supabase: ключ', 'доступ есть, таблица employees на месте');
   } else {
     const body = await response.text();
@@ -134,12 +186,17 @@ try {
 // --- 4. Telegram: токен бота ------------------------------------------------
 
 {
-  const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`);
-  const body = await response.json();
-  if (body.ok) {
-    ok('Telegram: токен', `бот @${body.result.username}`);
-  } else {
-    fail('Telegram: токен', body.description ?? `${response.status}`, 'Токен от @BotFather, целиком.');
+  const response = await request(
+    'Telegram: токен',
+    `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`,
+  );
+  if (response) {
+    const body = await response.json();
+    if (body.ok) {
+      ok('Telegram: токен', `бот @${body.result.username}`);
+    } else {
+      fail('Telegram: токен', body.description ?? `${response.status}`, 'Токен от @BotFather, целиком.');
+    }
   }
 }
 
