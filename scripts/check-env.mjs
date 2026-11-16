@@ -34,10 +34,16 @@ const vars = [
   },
   {
     name: 'MICROSOFT_APP_TYPE',
+    // Бот заведён в Developer Portal, и портал показывает его как MultiTenant,
+    // но Bot Connector принимает только токен, выданный тенантом ЭНЭКА
+    // (проверено 16.11: токен от botframework.com — 401, от тенанта — 201).
+    // Поэтому здесь SingleTenant, иначе исходящие сообщения не уходят.
     check: (v) =>
-      ['MultiTenant', 'SingleTenant', 'UserAssignedMSI'].includes(v)
+      v === 'SingleTenant'
         ? null
-        : 'ожидается MultiTenant',
+        : ['MultiTenant', 'UserAssignedMSI'].includes(v)
+          ? `ожидается SingleTenant: при ${v} Bot Connector отвергает исходящие`
+          : 'ожидается SingleTenant',
   },
   { name: 'MICROSOFT_APP_ID', check: (v) => (GUID.test(v) ? null : 'ожидается GUID') },
   {
@@ -47,8 +53,9 @@ const vars = [
   },
   {
     name: 'MICROSOFT_APP_TENANT_ID',
-    optional: true,
-    check: (v) => (v ? 'должно быть пустым, пока бот MultiTenant' : null),
+    // Нужен именно при SingleTenant: botbuilder по нему строит адрес центра
+    // выдачи токена. Пустое значение возвращает нас к 401.
+    check: (v) => (GUID.test(v) ? null : 'ожидается GUID тенанта ЭНЭКА'),
   },
   { name: 'NEXT_PUBLIC_TEAMS_BOT_ID', check: (v) => (GUID.test(v) ? null : 'ожидается GUID') },
   {
