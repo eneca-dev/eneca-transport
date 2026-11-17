@@ -27,7 +27,11 @@ interface EmployeeRow {
   employee_roles: { role: AppRole }[] | null;
 }
 
-const SELECT = 'id, entra_oid, upn, display_name, department, job_title, is_active, employee_roles(role)';
+// Связь указывается явно: у employee_roles две ссылки на employees —
+// кому выдана роль и кто её выдал. Без имени внешнего ключа запрос падает.
+const SELECT =
+  'id, entra_oid, upn, display_name, department, job_title, is_active, ' +
+  'employee_roles!employee_roles_employee_id_fkey(role)';
 
 function toEmployee(row: EmployeeRow): Employee {
   return {
