@@ -73,14 +73,14 @@ export function TeamsAuthProvider({ children }: TeamsAuthProviderProps) {
   }, [getToken]);
 
   if (state.stage === 'loading') {
-    return <p className="p-6 text-sm text-gray-500">Загрузка…</p>;
+    return <p className="p-6 text-sm text-fg-soft">Загрузка…</p>;
   }
 
   if (state.stage === 'error') {
     return (
-      <div className="m-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm">
-        <p className="font-medium text-red-800">Не удалось войти</p>
-        <p className="mt-1 text-red-700">{state.message}</p>
+      <div className="m-6 rounded-lg border border-bad-line bg-bad p-4 text-sm text-bad-fg">
+        <p className="font-medium">Не удалось войти</p>
+        <p className="mt-1">{state.message}</p>
       </div>
     );
   }

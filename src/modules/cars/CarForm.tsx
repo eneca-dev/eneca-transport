@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+import { BUTTON_GHOST, BUTTON_PRIMARY, FIELD } from '@/components/controls';
+
 import type { FormEvent } from 'react';
 import type { CarInput } from './actions';
 import type { Car } from './queries';
@@ -21,42 +23,41 @@ export function CarForm({ car, pending, onSubmit, onCancel }: CarFormProps) {
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    onSubmit({ plate, model, odometerKm: Number(odometer) });
+    // Пустое поле — это не ноль: Number('') вернул бы 0 и машина завелась
+    // бы с нулевым пробегом. NaN не проходит проверку Zod, и человек видит ошибку.
+    onSubmit({ plate, model, odometerKm: odometer === '' ? Number.NaN : Number(odometer) });
   }
 
-  const field = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500';
+  const label = 'mb-1 block text-xs font-medium text-fg-soft';
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4"
-    >
+    <form onSubmit={handleSubmit} className="rounded-lg border border-line bg-surface-soft p-4">
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-gray-600">Номер</span>
+          <span className={label}>Номер</span>
           <input
-            className={field}
+            className={FIELD}
             value={plate}
-            onChange={(e) => setPlate(e.target.value)}
+            onChange={(event) => setPlate(event.target.value)}
             placeholder="1234 AB-7"
             autoFocus
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-gray-600">Модель</span>
+          <span className={label}>Модель</span>
           <input
-            className={field}
+            className={FIELD}
             value={model}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(event) => setModel(event.target.value)}
             placeholder="Škoda Octavia"
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-gray-600">Одометр, км</span>
+          <span className={label}>Одометр, км</span>
           <input
-            className={field}
+            className={FIELD}
             value={odometer}
-            onChange={(e) => setOdometer(e.target.value.replace(/\D/g, ''))}
+            onChange={(event) => setOdometer(event.target.value.replace(/\D/g, ''))}
             inputMode="numeric"
             placeholder="85136"
           />
@@ -66,25 +67,16 @@ export function CarForm({ car, pending, onSubmit, onCancel }: CarFormProps) {
       {/* Одометр новой машины становится начальным показанием первой поездки,
           поэтому о цене ошибки сказано прямо в форме. */}
       {!car && (
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-fg-soft">
           Это показание станет начальным для первой поездки — сверьтесь с приборной панелью.
         </p>
       )}
 
       <div className="mt-4 flex gap-2">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <button type="submit" disabled={pending} className={BUTTON_PRIMARY}>
           {car ? 'Сохранить' : 'Добавить'}
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={pending}
-          className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-50"
-        >
+        <button type="button" onClick={onCancel} disabled={pending} className={BUTTON_GHOST}>
           Отмена
         </button>
       </div>

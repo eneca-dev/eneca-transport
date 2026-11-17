@@ -23,6 +23,16 @@ const NAV: NavItem[] = [
   { href: '/cars', label: 'Машины', icon: Car, roles: ['aho'] },
 ];
 
+/** «Александра Бирило» → «АБ». Нужны первые буквы двух первых слов. */
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
 interface AppShellProps {
   children: ReactNode;
 }
@@ -35,34 +45,53 @@ export function AppShell({ children }: AppShellProps) {
     (item) => !item.roles || item.roles.some((role) => employee.roles.includes(role)),
   );
 
+  // Сотруднику без ролей переключать нечего: у него один раздел, и его название
+  // Teams уже показывает закладкой рядом с «Чат». Вторая такая же полоска внутри
+  // вкладки только дублировала бы её, поэтому её нет совсем.
+  const switchable = items.length > 1;
+
   return (
     <div className="flex min-h-full flex-col">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-2">
-          <nav className="flex gap-1">
-            {items.map(({ href, label, icon: Icon }) => {
-              const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
-                    active
-                      ? 'bg-indigo-50 font-medium text-indigo-700'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon className="size-4" aria-hidden />
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
-          <span className="truncate text-sm text-gray-500" title={employee.upn}>
-            {employee.displayName}
-          </span>
-        </div>
-      </header>
+      {switchable && (
+        <header className="border-b border-line bg-surface">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4">
+            {/* Закладки с подчёркиванием, как в самом Teams: активный раздел
+                читается по жирному тексту и полосе, а не по цвету фона. */}
+            <nav className="-mb-px flex">
+              {items.map(({ href, label, icon: Icon }) => {
+                const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    aria-current={active ? 'page' : undefined}
+                    className={`flex items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
+                      active
+                        ? 'border-brand font-semibold text-brand-text'
+                        : 'border-transparent text-fg-soft hover:text-fg'
+                    }`}
+                  >
+                    <Icon className="size-4 shrink-0" aria-hidden />
+                    {label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="flex min-w-0 items-center gap-2" title={employee.upn}>
+              <span className="hidden truncate text-sm text-fg-soft sm:block">
+                {employee.displayName}
+              </span>
+              <span
+                aria-hidden
+                className="grid size-7 shrink-0 place-items-center rounded-full bg-brand text-xs font-semibold text-brand-fg"
+              >
+                {initials(employee.displayName)}
+              </span>
+            </div>
+          </div>
+        </header>
+      )}
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
     </div>

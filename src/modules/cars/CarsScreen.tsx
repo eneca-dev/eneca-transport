@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { Plus } from 'lucide-react';
 
+import { BUTTON_PRIMARY_SM } from '@/components/controls';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
 import { createCar, finishRepair, loadCars, startRepair, updateCar } from './actions';
 import { CarForm } from './CarForm';
 import { CarRow } from './CarRow';
+import { RepairForm } from './RepairForm';
 
 import type { ActionResult } from '@/lib/types';
 import type { CarInput } from './actions';
@@ -21,7 +23,15 @@ export function CarsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Car | null>(null);
+  const [repairing, setRepairing] = useState<Car | null>(null);
   const [pending, startTransition] = useTransition();
+
+  /** Открытая форма всегда одна: иначе непонятно, что сохранится. */
+  function closeForms() {
+    setAdding(false);
+    setEditing(null);
+    setRepairing(null);
+  }
 
   /** Все действия возвращают новый список: экран не расходится с базой. */
   const run = useCallback(
@@ -56,23 +66,22 @@ export function CarsScreen() {
     run((token) => updateCar(token, car.id, input), () => setEditing(null));
   }
 
-  function handleStartRepair(car: Car) {
-    const note = window.prompt(`Что с машиной ${car.plate}?`) ?? '';
-    run((token) => startRepair(token, car.id, note));
+  function handleStartRepair(car: Car, note: string) {
+    run((token) => startRepair(token, car.id, note), () => setRepairing(null));
   }
 
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-4">
         <h1 className="text-lg font-semibold">Машины</h1>
         {!adding && (
           <button
             type="button"
             onClick={() => {
+              closeForms();
               setAdding(true);
-              setEditing(null);
             }}
-            className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+            className={BUTTON_PRIMARY_SM}
           >
             <Plus className="size-4" aria-hidden />
             Добавить
@@ -81,7 +90,7 @@ export function CarsScreen() {
       </div>
 
       {error && (
-        <p className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="mb-4 rounded-md border border-bad-line bg-bad px-4 py-3 text-sm text-bad-fg">
           {error}
         </p>
       )}
@@ -92,40 +101,60 @@ export function CarsScreen() {
         </div>
       )}
 
-      {cars === null && !error && <p className="text-sm text-gray-500">Загрузка…</p>}
+      {cars === null && !error && <p className="text-sm text-fg-soft">Загрузка…</p>}
 
       {cars?.length === 0 && !adding && (
-        <p className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500">
+        <p className="rounded-lg border border-dashed border-line-strong p-6 text-center text-sm text-fg-soft">
           Справочник пуст. Добавьте первую машину — нужны номер, модель и текущий одометр.
         </p>
       )}
 
       {cars && cars.length > 0 && (
-        <ul className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white">
-          {cars.map((car) =>
-            editing?.id === car.id ? (
-              <li key={car.id} className="p-4">
-                <CarForm
-                  car={car}
-                  pending={pending}
-                  onSubmit={(input) => handleUpdate(car, input)}
-                  onCancel={() => setEditing(null)}
-                />
-              </li>
-            ) : (
+        <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+          {cars.map((car) => {
+            if (editing?.id === car.id) {
+              return (
+                <li key={car.id} className="p-4">
+                  <CarForm
+                    car={car}
+                    pending={pending}
+                    onSubmit={(input) => handleUpdate(car, input)}
+                    onCancel={() => setEditing(null)}
+                  />
+                </li>
+              );
+            }
+
+            if (repairing?.id === car.id) {
+              return (
+                <li key={car.id} className="p-4">
+                  <RepairForm
+                    car={car}
+                    pending={pending}
+                    onSubmit={(note) => handleStartRepair(car, note)}
+                    onCancel={() => setRepairing(null)}
+                  />
+                </li>
+              );
+            }
+
+            return (
               <CarRow
                 key={car.id}
                 car={car}
                 pending={pending}
                 onEdit={() => {
+                  closeForms();
                   setEditing(car);
-                  setAdding(false);
                 }}
-                onStartRepair={() => handleStartRepair(car)}
+                onStartRepair={() => {
+                  closeForms();
+                  setRepairing(car);
+                }}
                 onFinishRepair={() => run((token) => finishRepair(token, car.id))}
               />
-            ),
-          )}
+            );
+          })}
         </ul>
       )}
     </section>

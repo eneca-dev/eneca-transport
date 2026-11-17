@@ -1,7 +1,8 @@
 'use client';
 
-import { Wrench } from 'lucide-react';
+import { CircleCheck, Wrench } from 'lucide-react';
 
+import { BUTTON_SECONDARY } from '@/components/controls';
 import { APP_TIMEZONE } from '@/config/app';
 
 import type { Car } from './queries';
@@ -20,24 +21,27 @@ const dateFormat = new Intl.DateTimeFormat('ru-RU', {
   timeZone: APP_TIMEZONE,
 });
 
+const BADGE = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium';
+
 export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: CarRowProps) {
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{car.model}</span>
-          <span className="font-mono text-sm text-gray-600">{car.plate}</span>
+          <span className="font-semibold">{car.model}</span>
+          <span className="font-mono text-sm text-fg-soft">{car.plate}</span>
           {car.inRepair ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+            <span className={`${BADGE} bg-warn text-warn-fg`}>
               <Wrench className="size-3" aria-hidden />в ремонте
             </span>
           ) : (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800">
+            <span className={`${BADGE} bg-ok text-ok-fg`}>
+              <CircleCheck className="size-3" aria-hidden />
               исправна
             </span>
           )}
         </div>
-        <p className="mt-0.5 text-sm text-gray-500">
+        <p className="mt-0.5 text-sm text-fg-soft">
           одометр {car.odometerKm.toLocaleString('ru-RU')} км
           {car.inRepair && car.repairSince && (
             <>
@@ -54,7 +58,7 @@ export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: 
             type="button"
             onClick={onFinishRepair}
             disabled={pending}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+            className={BUTTON_SECONDARY}
           >
             Исправлено
           </button>
@@ -63,17 +67,12 @@ export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: 
             type="button"
             onClick={onStartRepair}
             disabled={pending}
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+            className={BUTTON_SECONDARY}
           >
             В ремонт
           </button>
         )}
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={pending}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-        >
+        <button type="button" onClick={onEdit} disabled={pending} className={BUTTON_SECONDARY}>
           Изменить
         </button>
       </div>
