@@ -29,6 +29,10 @@ export const serverEnv = {
   get telegramBotToken() {
     return required('TELEGRAM_BOT_TOKEN');
   },
+  /** Секрет задач по расписанию. Vercel Cron передаёт его в Authorization. */
+  get cronSecret() {
+    return required('CRON_SECRET');
+  },
   get telegramWebhookSecret() {
     return required('TELEGRAM_WEBHOOK_SECRET');
   },

@@ -79,6 +79,13 @@ const vars = [
     check: (v) => (/^\d+:[\w-]{30,}$/.test(v) ? null : 'ожидается <цифры>:<строка> от @BotFather'),
   },
   {
+    name: 'CRON_SECRET',
+    secret: true,
+    // Им Vercel Cron подписывает запуск задач. Длина важнее формата:
+    // короткую строку можно подобрать, а адрес задачи публичный.
+    check: (v) => (v.length >= 24 ? null : 'от 24 символов'),
+  },
+  {
     name: 'TELEGRAM_WEBHOOK_SECRET',
     secret: true,
     check: (v) =>
