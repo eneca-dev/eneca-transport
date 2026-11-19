@@ -22,8 +22,13 @@ import { notifyAuthorNoDriver, notifyDriverTimeout } from './notifyDriver';
 export interface TickResult {
   /** Назначений, у которых вышли 15 минут. */
   driverTimeouts: number;
-  /** Поездок, где к выезду нет подтверждённого водителя. */
-  authorsAsked: number;
+  /**
+   * Поездок, у которых наступил выезд без подтверждённого водителя. Это
+   * найденные поездки, а не отправленные карточки: повторную отправку
+   * отсекает занятый ключ, а поездка остаётся в этом состоянии до решения
+   * автора и попадает в счётчик каждый проход.
+   */
+  tripsWithoutDriver: number;
 }
 
 interface TripIdRow {
@@ -125,7 +130,7 @@ export async function runDeadlines(): Promise<TickResult> {
   // Сначала сроки подтверждения: поездка, у которой только что вышли 15 минут,
   // должна успеть получить статус до проверки «нет подтверждённого водителя».
   const driverTimeouts = await expireDriverConfirmations();
-  const authorsAsked = await askAuthorsWithoutDriver();
+  const tripsWithoutDriver = await askAuthorsWithoutDriver();
 
-  return { driverTimeouts, authorsAsked };
+  return { driverTimeouts, tripsWithoutDriver };
 }

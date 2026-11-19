@@ -118,6 +118,167 @@ export function cardK1(trip: TripCardData): unknown {
 }
 
 /**
+ * К3: финотделу — новая или изменённая заявка.
+ *
+ * Кнопка «Документы готовы» прямо в карточке: по требованиям финотдел
+ * отмечает готовность, и заставлять его для этого открывать вкладку —
+ * лишний шаг на каждой заявке.
+ */
+export function cardK3(trip: TripCardData, recheck: boolean): unknown {
+  return buildCard({
+    title: recheck
+      ? `Поездка #${trip.id} изменилась — нужна повторная проверка`
+      : `Новая заявка #${trip.id}`,
+    subtitle: `${period(trip)} · ${trip.route}`,
+    facts: [
+      {
+        title: 'Участники',
+        value: [trip.authorName, ...trip.participantNames].join(', '),
+      },
+      { title: 'Договор', value: trip.contract },
+      { title: 'Цель', value: trip.purpose },
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+      { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+    ],
+    note: recheck
+      ? 'Прежний комплект документов неактуален — проверьте и подтвердите готовность заново.'
+      : undefined,
+    actions: [
+      {
+        kind: 'submit',
+        title: 'Документы готовы',
+        style: 'positive',
+        data: { action: 'docs_ready', tripId: trip.id },
+      },
+      { kind: 'open', title: 'Открыть', tripId: trip.id },
+    ],
+  });
+}
+
+/**
+ * К7: автору — ключи выданы.
+ *
+ * Без кнопок: по требованиям это уведомление, а не запрос действия. Главное
+ * в нём — срок возврата, поэтому он в заголовке, а не в полях.
+ */
+export function cardK7(trip: TripCardData, returnBy: string, odometerStartKm: number): unknown {
+  return buildCard({
+    title: `Хорошей поездки. Вернуть ключи до ${returnBy}`,
+    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    facts: [
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+      { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+      {
+        title: 'Одометр при выдаче',
+        value: `${odometerStartKm.toLocaleString('ru-RU')} км`,
+      },
+    ],
+    note: 'При возврате понадобится показание одометра — запишите его перед сдачей ключей.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/** К4: автору — документы готовы. */
+export function cardK4(trip: TripCardData): unknown {
+  return buildCard({
+    title: `Поездка #${trip.id}: документы готовы`,
+    subtitle: `${period(trip)} · ${trip.route}`,
+    facts: [
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+      { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+    ],
+    note: 'Заберите документы и ключи на рецепции перед выездом.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/** К9: автору — поездка закрыта. */
+export function cardK9(trip: TripCardData, distanceKm: number, odometerEndKm: number): unknown {
+  return buildCard({
+    title: `Поездка #${trip.id} закрыта`,
+    subtitle: `${period(trip)} · ${trip.route}`,
+    facts: [
+      { title: 'Машина', value: trip.carLabel ?? '—' },
+      { title: 'Пробег', value: `${distanceKm.toLocaleString('ru-RU')} км` },
+      { title: 'Одометр при сдаче', value: `${odometerEndKm.toLocaleString('ru-RU')} км` },
+    ],
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/**
+ * К10: АХО — замечание или примечание при возврате.
+ *
+ * Кнопки разные по смыслу. Примечание (забытые вещи, мусор) достаточно
+ * принять к сведению. Замечание по машине требует решения: в ремонт или
+ * ничего страшного.
+ */
+export function cardK10(
+  trip: TripCardData,
+  author: string,
+  text: string,
+  isRemark: boolean,
+): unknown {
+  return buildCard({
+    title: isRemark
+      ? `Замечание по машине: ${trip.carLabel ?? '—'}`
+      : `Примечание после поездки: ${trip.carLabel ?? '—'}`,
+    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    facts: [
+      { title: 'Написал', value: author },
+      { title: 'Текст', value: text || '—' },
+    ],
+    actions: isRemark
+      ? [
+          {
+            kind: 'submit',
+            title: 'В ремонт',
+            style: 'destructive',
+            data: { action: 'car_to_repair', tripId: trip.id },
+          },
+          {
+            kind: 'submit',
+            title: 'Исправлено',
+            data: { action: 'remark_handled', tripId: trip.id },
+          },
+        ]
+      : [
+          {
+            kind: 'submit',
+            title: 'Принято',
+            data: { action: 'remark_handled', tripId: trip.id },
+          },
+        ],
+  });
+}
+
+/**
+ * К11: АХО — показание одометра меньше начального.
+ *
+ * Ошибочное значение не сохраняется, поэтому карточка нужна не для решения,
+ * а чтобы АХО знала: кто-то ввёл невозможное число. Повторяющиеся случаи по
+ * одной машине — повод проверить сам одометр.
+ */
+export function cardK11(
+  trip: TripCardData,
+  enteredBy: string,
+  startKm: number,
+  enteredKm: number,
+): unknown {
+  return buildCard({
+    title: `Одометр меньше начального: ${trip.carLabel ?? '—'}`,
+    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    facts: [
+      { title: 'Ввёл', value: enteredBy },
+      { title: 'Начальное', value: `${startKm.toLocaleString('ru-RU')} км` },
+      { title: 'Введено', value: `${enteredKm.toLocaleString('ru-RU')} км` },
+    ],
+    note: 'Значение не сохранено, человека попросили ввести заново.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/**
  * К16: автору — к выезду нет подтверждённого водителя.
  *
  * Два решения: ехать самому или отменить. До выбора бронь автомобиля

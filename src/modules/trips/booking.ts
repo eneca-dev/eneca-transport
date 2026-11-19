@@ -69,6 +69,24 @@ const dateParts = new Intl.DateTimeFormat('ru-RU', {
  * и сравнивать их надо с минским днём, а не с днём по UTC. Поездка, начатая в
  * 01:00 по Минску, по UTC приходится на предыдущие сутки.
  */
+/**
+ * Начало и конец минских суток, в которые попадает момент.
+ *
+ * Нужно экрану рецепции: «выдачи и возвраты на сегодня» — это минские сутки, а
+ * не сутки по UTC. Возврат в 01:00 по Минску приходится на предыдущие сутки
+ * UTC, и без этого он попал бы во вчерашний список.
+ */
+export function minskDayBounds(date: Date): { from: Date; to: Date } {
+  const day = toMinskDate(date);
+  const from = fromMinskInput(day, '00:00');
+
+  if (!from) {
+    throw new Error(`Не удалось определить сутки для ${date.toISOString()}`);
+  }
+
+  return { from, to: new Date(from.getTime() + 24 * 60 * 60 * 1000) };
+}
+
 export function toMinskDate(date: Date): string {
   const parts = dateParts.formatToParts(date);
   const get = (type: Intl.DateTimeFormatPartTypes) =>

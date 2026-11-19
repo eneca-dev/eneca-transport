@@ -137,3 +137,47 @@ export async function listEmployeesByIds(ids: string[]): Promise<EmployeeOption[
     jobTitle: row.job_title,
   }));
 }
+
+/** Сотрудник-получатель уведомлений: минимум, нужный для отправки. */
+export interface RoleRecipient {
+  id: string;
+  entraOid: string;
+  displayName: string;
+}
+
+interface RoleRow {
+  employees: {
+    id: string;
+    entra_oid: string;
+    display_name: string;
+    is_active: boolean;
+  } | null;
+}
+
+/**
+ * Активные сотрудники с указанной ролью — кому уходят ролевые уведомления.
+ *
+ * Адресат по роли, а не по имени: в требованиях К14 адресована Дарье, а К3 —
+ * «финотделу», но людей в роли может быть несколько, и уволенного спрашивать
+ * бессмысленно.
+ */
+export async function listEmployeesByRole(role: AppRole): Promise<RoleRecipient[]> {
+  const { data, error } = await getDb()
+    .from('employee_roles')
+    .select('employees!employee_roles_employee_id_fkey(id, entra_oid, display_name, is_active)')
+    .eq('role', role)
+    .returns<RoleRow[]>();
+
+  if (error) {
+    throw new Error(`Не удалось найти сотрудников с ролью ${role}: ${error.message}`);
+  }
+
+  return (data ?? [])
+    .map((row) => row.employees)
+    .filter((person): person is NonNullable<typeof person> => person !== null && person.is_active)
+    .map((person) => ({
+      id: person.id,
+      entraOid: person.entra_oid,
+      displayName: person.display_name,
+    }));
+}

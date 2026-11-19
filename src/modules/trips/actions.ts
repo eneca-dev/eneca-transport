@@ -9,9 +9,12 @@ import { searchEmployees } from '@/modules/employees/queries';
 
 import { fromMinskInput } from './booking';
 import { listCarOptions, listDriverOptions } from './availability';
+import { notifyFinanceNewRequest } from '@/modules/documents/notify';
+
 import { notifyTripBooked } from './notify';
 import { notifyDriverAssigned } from './notifyDriver';
 import { getTripCard, listMyTrips } from './queries';
+import { submitReturn } from './returnService';
 
 import type { ActionResult } from '@/lib/types';
 import type { EmployeeOption } from '@/modules/employees/queries';
@@ -256,6 +259,8 @@ export async function createTrip(
       await notifyDriverAssigned(tripId);
     }
 
+    await notifyFinanceNewRequest(tripId);
+
     revalidatePath('/');
     revalidatePath(`/trips/${tripId}`);
 
@@ -278,4 +283,73 @@ function bookingConflictMessage(error: { code?: string; message: string }): stri
     return 'Этого водителя только что назначили на другую поездку. Выберите другого.';
   }
   return 'Эту машину только что забронировали. Выберите другую.';
+}
+
+const returnSchema = z.object({
+  odometerKm: z
+    .number({ error: 'Укажите показание одометра' })
+    .int('Только целое число')
+    .min(0, 'Не может быть отрицательным')
+    .max(10_000_000, 'Слишком большое значение'),
+  conditionOk: z.boolean(),
+  note: z.string().trim().max(500, 'Слишком длинное примечание'),
+});
+
+export type ReturnFormInput = z.infer<typeof returnSchema>;
+
+/**
+ * «Оформить возврат» в карточке поездки.
+ *
+ * Доступно автору поездки без водителя: по требованиям поездку с водителем
+ * возвращает сам водитель из Telegram. АХО допускается — ей приходится
+ * доделывать за отсутствующими.
+ */
+export async function submitTripReturn(
+  token: string,
+  tripId: number,
+  input: ReturnFormInput,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const employee = await requireEmployee(token);
+
+    const parsed = returnSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
+    }
+
+    const card = await getTripCard(tripId, employee.id);
+
+    if (!card) {
+      return { success: false, error: 'Поездка не найдена.' };
+    }
+
+    const isAho = employee.roles.includes('aho');
+
+    if (!card.isAuthor && !isAho) {
+      return { success: false, error: 'Возврат оформляет автор поездки.' };
+    }
+    if (card.needsDriver && !isAho) {
+      return {
+        success: false,
+        error: 'Поездку с водителем возвращает водитель — из бота в Telegram.',
+      };
+    }
+
+    const outcome = await submitReturn(tripId, { employeeId: employee.id }, parsed.data);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/reception');
+    revalidatePath('/');
+
+    const updated = await getTripCard(tripId, employee.id);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Возврат записан, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось оформить возврат.');
+  }
 }

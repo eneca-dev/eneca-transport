@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { ArrowLeft } from 'lucide-react';
 
-import { BADGE, BADGE_DOT } from '@/components/controls';
+import { BADGE, BADGE_DOT, BUTTON_PRIMARY } from '@/components/controls';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatMoment, formatPeriod } from '@/lib/datetime';
 
-import { loadTripCard } from './actions';
+import { loadTripCard, submitTripReturn } from './actions';
+import { ReturnForm } from './ReturnForm';
 import {
   CONFIRMATION_LABEL,
   CONFIRMATION_TONE,
@@ -53,7 +54,8 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
 
   const [trip, setTrip] = useState<TripCard | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [returning, setReturning] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   const load = useCallback(() => {
     startTransition(async () => {
@@ -72,6 +74,18 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
   }, [getToken, tripId]);
 
   useEffect(load, [load]);
+
+  /**
+   * «Оформить возврат» показывается только автору поездки без водителя:
+   * поездку с водителем возвращает сам водитель из Telegram, и две точки
+   * ввода одометра расходились бы.
+   */
+  const canReturn =
+    trip !== null &&
+    trip.status === 'in_trip' &&
+    trip.odometerEndKm === null &&
+    !trip.needsDriver &&
+    trip.isAuthor;
 
   if (error) {
     return (
@@ -189,6 +203,42 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
           )}
         </dl>
       </div>
+
+      {canReturn && !returning && (
+        <button
+          type="button"
+          onClick={() => setReturning(true)}
+          className={`${BUTTON_PRIMARY} mt-4`}
+        >
+          Оформить возврат
+        </button>
+      )}
+
+      {returning && trip && (
+        <div className="mt-4">
+          <ReturnForm
+            odometerStartKm={trip.odometerStartKm}
+            pending={pending}
+            onCancel={() => setReturning(false)}
+            onSubmit={(input) =>
+              startTransition(async () => {
+                try {
+                  const result = await submitTripReturn(await getToken(), tripId, input);
+                  if (result.success) {
+                    setTrip(result.data);
+                    setError(null);
+                    setReturning(false);
+                  } else {
+                    setError(result.error);
+                  }
+                } catch {
+                  setError('Не удалось связаться с сервером. Попробуйте ещё раз.');
+                }
+              })
+            }
+          />
+        </div>
+      )}
 
       <h2 className="mt-6 mb-2 text-sm font-semibold">Журнал</h2>
       {trip.events.length === 0 ? (

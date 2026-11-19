@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { getDb } from '@/config/supabase';
+import { setDocsReady } from '@/modules/documents/service';
 import { findEmployeeByOid } from '@/modules/employees/queries';
 
 /**
@@ -152,19 +153,37 @@ export async function handleCardAction(
     return { message: 'Поездка не найдена.', done: true };
   }
 
-  // Решение по К16 принимает автор. АХО допускается: по требованиям она ведёт
-  // брони и может решать за автора, если тот недоступен.
-  const allowed = trip.author_id === employee.id || employee.roles.includes('aho');
-
-  if (!allowed) {
-    return { message: 'Это решение принимает автор поездки.', done: false };
-  }
+  // Право зависит от действия, а не от карточки: решение по К16 принимает
+  // автор, готовность документов отмечает финотдел. АХО допускается везде —
+  // по требованиям она ведёт брони и решает за отсутствующих.
+  const isAho = employee.roles.includes('aho');
 
   switch (action) {
     case 'trip_without_driver':
-      return dropDriver(trip, employee.id);
-    case 'trip_cancel':
-      return cancelTrip(trip, employee.id);
+    case 'trip_cancel': {
+      if (trip.author_id !== employee.id && !isAho) {
+        return { message: 'Это решение принимает автор поездки.', done: false };
+      }
+      return action === 'trip_cancel'
+        ? cancelTrip(trip, employee.id)
+        : dropDriver(trip, employee.id);
+    }
+    case 'docs_ready': {
+      if (!employee.roles.includes('finance') && !isAho) {
+        return {
+          message: 'Отметить документы готовыми может финотдел или АХО.',
+          done: false,
+        };
+      }
+      const outcome = await setDocsReady(trip.id, employee.id);
+      return outcome.ok
+        ? {
+            message:
+              'Документы отмечены готовыми. Автор получил сообщение забрать их и ключи на рецепции.',
+            done: true,
+          }
+        : { message: outcome.reason, done: false };
+    }
     default:
       return null;
   }

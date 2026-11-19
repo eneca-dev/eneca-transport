@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Car, Route, UserRound } from 'lucide-react';
+import { Car, FileText, KeyRound, Route, UserRound } from 'lucide-react';
 
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
@@ -20,6 +20,8 @@ interface NavItem {
 // Разделы добавляются по мере готовности экранов: мёртвых ссылок в меню нет.
 const NAV: NavItem[] = [
   { href: '/', label: 'Мои поездки', icon: Route },
+  { href: '/reception', label: 'Рецепция', icon: KeyRound, roles: ['reception', 'aho'] },
+  { href: '/documents', label: 'Документы', icon: FileText, roles: ['finance', 'aho'] },
   { href: '/cars', label: 'Машины', icon: Car, roles: ['aho'] },
   { href: '/drivers', label: 'Водители', icon: UserRound, roles: ['aho'] },
 ];
@@ -57,8 +59,10 @@ export function AppShell({ children }: AppShellProps) {
         <header className="border-b border-line bg-surface">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4">
             {/* Закладки с подчёркиванием, как в самом Teams: активный раздел
-                читается по жирному тексту и полосе, а не по цвету фона. */}
-            <nav className="-mb-px flex">
+                читается по жирному тексту и полосе, а не по цвету фона.
+                У АХО разделов пять — на узком экране полоска прокручивается
+                вбок, а не сжимает названия до нечитаемых. */}
+            <nav className="-mb-px flex min-w-0 overflow-x-auto">
               {items.map(({ href, label, icon: Icon }) => {
                 // Новая поездка и карточка поездки живут под /trips, но по сути
                 // это раздел «Мои поездки» — закладка остаётся подсвеченной.
@@ -71,7 +75,7 @@ export function AppShell({ children }: AppShellProps) {
                     key={href}
                     href={href}
                     aria-current={active ? 'page' : undefined}
-                    className={`flex items-center gap-2 border-b-2 px-3 py-3 text-sm transition-colors ${
+                    className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap transition-colors ${
                       active
                         ? 'border-brand font-semibold text-brand-text'
                         : 'border-transparent text-fg-soft hover:text-fg'
