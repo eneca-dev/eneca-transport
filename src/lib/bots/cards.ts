@@ -1,4 +1,4 @@
-import { tripDeepLink } from '@/config/app';
+import { screenDeepLink, tripDeepLink } from '@/config/app';
 import { formatPeriod } from '@/lib/datetime';
 
 /**
@@ -32,7 +32,12 @@ interface CardOptions {
 
 export type CardAction =
   | { kind: 'open'; title: string; tripId: number }
-  | { kind: 'submit'; title: string; data: Record<string, unknown>; style?: 'positive' | 'destructive' };
+  | {
+      kind: 'submit';
+      title: string;
+      data: Record<string, unknown>;
+      style?: 'positive' | 'destructive';
+    };
 
 function toAction(action: CardAction): Record<string, unknown> {
   if (action.kind === 'open') {
@@ -106,8 +111,7 @@ export function cardK1(trip: TripCardData): unknown {
       { title: 'Договор', value: trip.contract },
       {
         title: 'Участники',
-        value:
-          trip.participantNames.length > 0 ? trip.participantNames.join(', ') : 'только вы',
+        value: trip.participantNames.length > 0 ? trip.participantNames.join(', ') : 'только вы',
       },
     ],
     note: trip.driverLabel
@@ -192,6 +196,225 @@ export function cardK4(trip: TripCardData): unknown {
   });
 }
 
+/**
+ * К8: автору поездки без водителя — пора оформить возврат.
+ *
+ * Поля прямо в карточке: по требованиям здесь одометр, «всё в порядке?» и
+ * примечание. Человеку не нужно открывать вкладку, чтобы сдать машину, —
+ * он отвечает там, где получил напоминание.
+ *
+ * Значения полей Teams присылает вместе с данными кнопки, поэтому отдельно
+ * их передавать не надо.
+ */
+export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: CARD_VERSION,
+    body: [
+      {
+        type: 'TextBlock',
+        text: `Поездка #${trip.id}: время возврата`,
+        weight: 'Bolder',
+        size: 'Medium',
+        wrap: true,
+      },
+      {
+        type: 'TextBlock',
+        text: `${period(trip)} · ${trip.route}`,
+        isSubtle: true,
+        wrap: true,
+        spacing: 'None',
+      },
+      {
+        type: 'Input.Text',
+        id: 'odometer',
+        label: 'Показание одометра, км',
+        placeholder: String(odometerStartKm),
+        style: 'tel',
+      },
+      {
+        type: 'TextBlock',
+        text: `При выдаче было ${odometerStartKm.toLocaleString('ru-RU')} км`,
+        isSubtle: true,
+        wrap: true,
+        spacing: 'None',
+      },
+      {
+        type: 'Input.ChoiceSet',
+        id: 'condition',
+        label: 'Всё в порядке с машиной?',
+        style: 'expanded',
+        value: 'ok',
+        choices: [
+          { title: 'Да', value: 'ok' },
+          { title: 'Есть замечание', value: 'remark' },
+        ],
+      },
+      {
+        type: 'Input.Text',
+        id: 'note',
+        label: 'Примечание',
+        placeholder: 'мусор, забытые вещи, повреждения — необязательно',
+        isMultiline: true,
+      },
+      {
+        type: 'TextBlock',
+        text: 'После отправки сдайте ключи на рецепции — поездка закроется, когда их примут.',
+        isSubtle: true,
+        wrap: true,
+      },
+    ],
+    actions: [
+      {
+        type: 'Action.Submit',
+        title: 'Отправить',
+        style: 'positive',
+        data: { action: 'trip_return', tripId: trip.id },
+      },
+    ],
+  };
+}
+
+/** К5: автору — накануне выезда, 17:00. */
+export function cardK5(trip: TripCardData, departure: string): unknown {
+  return buildCard({
+    title: `Завтра поездка #${trip.id}`,
+    subtitle: trip.route,
+    facts: [
+      { title: 'Выезд', value: departure },
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+      { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+    ],
+    note: 'Документы и ключи — у Виктории на рецепции перед выездом.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/**
+ * К6: рецепции — утренняя сводка.
+ *
+ * Не про одну поездку, поэтому вместо полей — цифры по дню. Открывать по
+ * одной карточке на каждую выдачу значит завалить рецепцию с утра.
+ */
+export function cardK6(counts: { issues: number; returns: number; overdue: number }): unknown {
+  const body: Record<string, unknown>[] = [
+    {
+      type: 'TextBlock',
+      text: 'Рецепция: что сегодня',
+      weight: 'Bolder',
+      size: 'Medium',
+      wrap: true,
+    },
+    {
+      type: 'FactSet',
+      facts: [
+        { title: 'Выдать', value: String(counts.issues) },
+        { title: 'Принять', value: String(counts.returns) },
+        { title: 'Просрочено', value: String(counts.overdue) },
+      ],
+    },
+  ];
+
+  if (counts.overdue > 0) {
+    body.push({
+      type: 'TextBlock',
+      text: 'Есть незакрытые поездки с прошлых дней — они в отдельном списке на экране.',
+      wrap: true,
+    });
+  }
+
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: CARD_VERSION,
+    body,
+    actions: [
+      {
+        type: 'Action.OpenUrl',
+        title: 'Открыть экран рецепции',
+        url: screenDeepLink(),
+      },
+    ],
+  };
+}
+
+/** К15: автору и АХО — ключи не сданы. */
+export function cardK15(trip: TripCardData, returnBy: string): unknown {
+  return buildCard({
+    title: `Поездка #${trip.id}: ключи не сданы`,
+    subtitle: trip.route,
+    facts: [
+      { title: 'Машина', value: trip.carLabel ?? '—' },
+      { title: 'Вернуть надо было', value: returnBy },
+      { title: 'Ответственный', value: trip.authorName },
+    ],
+    note: 'Машина числится занятой, пока ключи не приняты на рецепции.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/** Что случилось с заявкой — для К12 и Т4. */
+export type TripChange = 'rescheduled' | 'cancelled' | 'driver_changed' | 'data_changed';
+
+export const CHANGE_LABEL: Record<TripChange, string> = {
+  rescheduled: 'перенесена',
+  cancelled: 'отменена',
+  driver_changed: 'сменился водитель',
+  data_changed: 'изменены данные',
+};
+
+/**
+ * К12: всем участникам поездки — заявка изменилась.
+ *
+ * Одна карточка на все случаи: отмену, перенос и правку данных. Разные
+ * карточки на каждое изменение означали бы четыре почти одинаковых текста,
+ * которые разъедутся при первой же правке.
+ */
+export function cardK12(
+  trip: TripCardData,
+  change: TripChange,
+  details: string,
+  docsRecheck: boolean,
+): unknown {
+  return buildCard({
+    title: `Поездка #${trip.id} ${CHANGE_LABEL[change]}`,
+    subtitle: change === 'cancelled' ? trip.route : `${period(trip)} · ${trip.route}`,
+    facts: [
+      { title: 'Что изменилось', value: details },
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+      { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+    ],
+    note: docsRecheck
+      ? 'Документы отправлены на повторную проверку — финотдел подтвердит готовность заново.'
+      : undefined,
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
+/**
+ * К13: автору и АХО — бронь затронута.
+ *
+ * Машину отправили в ремонт или водитель стал недоступен на эти даты.
+ * Бронь при этом сохраняется: решение за человеком, а не за системой.
+ */
+export function cardK13(trip: TripCardData, reason: string, forAho: boolean): unknown {
+  return buildCard({
+    title: `Поездка #${trip.id}: бронь затронута`,
+    subtitle: `${period(trip)} · ${trip.route}`,
+    facts: [
+      { title: 'Что случилось', value: reason },
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+      { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+      { title: 'Автор', value: trip.authorName },
+    ],
+    note: forAho
+      ? 'Назначьте другого водителя или машину в карточке поездки.'
+      : 'Выберите другую машину или водителя в карточке поездки, либо отмените заявку.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+  });
+}
+
 /** К9: автору — поездка закрыта. */
 export function cardK9(trip: TripCardData, distanceKm: number, odometerEndKm: number): unknown {
   return buildCard({
@@ -249,6 +472,38 @@ export function cardK10(
             data: { action: 'remark_handled', tripId: trip.id },
           },
         ],
+  });
+}
+
+/**
+ * К11 при исправлении после закрытия: прежнее значение, новое и причина.
+ *
+ * Отдельная карточка от «меньше начального»: там ошибка не сохранена и дело
+ * закрыто, а здесь значение изменено, и АХО должна видеть, кто и зачем.
+ */
+export function cardK11Correction(
+  trip: TripCardData,
+  correctedBy: string,
+  previousKm: number,
+  newKm: number,
+  reason: string,
+  affectedLater: number,
+): unknown {
+  return buildCard({
+    title: `Одометр исправлен: ${trip.carLabel ?? '—'}`,
+    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    facts: [
+      { title: 'Исправил', value: correctedBy },
+      { title: 'Было', value: `${previousKm.toLocaleString('ru-RU')} км` },
+      { title: 'Стало', value: `${newKm.toLocaleString('ru-RU')} км` },
+      { title: 'Причина', value: reason },
+    ],
+    note:
+      affectedLater > 0
+        ? `После этой поездки у машины есть ещё ${affectedLater} закрытых поездок. ` +
+          'Их показания не изменены — проверьте, не нужно ли исправить и их.'
+        : undefined,
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
   });
 }
 

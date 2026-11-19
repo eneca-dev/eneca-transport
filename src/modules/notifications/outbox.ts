@@ -23,7 +23,8 @@ export interface OutboxEntry {
   /** 'K1'…'K16', 'T1'…'T6'. */
   template: string;
   channel: Channel;
-  tripId: number;
+  /** `null` — сообщение не про конкретную поездку (например, сводка дня). */
+  tripId: number | null;
   recipient: Recipient;
   /** Например «K16:trip:127». Уникален на всю таблицу. */
   dedupeKey: string;

@@ -3,6 +3,7 @@ import 'server-only';
 import { cardK14, cardK16 } from '@/lib/bots/cards';
 import { sendCard } from '@/lib/bots/teamsSender';
 import { answerCallback, closeTelegramButtons, sendTelegramMessage } from '@/lib/bots/telegram';
+import { acceptCondition, acceptNote, askReturnStep } from './driverReturn';
 import { messageT1, messageT1Answered, messageT2 } from '@/lib/bots/telegramMessages';
 import { getDb } from '@/config/supabase';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
@@ -32,6 +33,7 @@ interface TripRow {
   author_id: string;
   driver_id: string | null;
   driver_confirmation: string;
+  driver_assigned_at: string | null;
   cars: { plate: string; model: string } | null;
   drivers: { id: string; full_name: string; telegram_chat_id: number | null } | null;
   employees: { entra_oid: string; display_name: string } | null;
@@ -39,7 +41,8 @@ interface TripRow {
 
 const TRIP_SELECT =
   'id, starts_at, ends_at, route, contract, purpose, author_id, driver_id, ' +
-  'driver_confirmation, cars(plate, model), drivers(id, full_name, telegram_chat_id), ' +
+  'driver_confirmation, driver_assigned_at, ' +
+  'cars(plate, model), drivers(id, full_name, telegram_chat_id), ' +
   'employees!trips_author_id_fkey(entra_oid, display_name)';
 
 async function loadTrip(tripId: number): Promise<TripRow | null> {
@@ -117,7 +120,9 @@ export async function notifyDriverAssigned(tripId: number): Promise<void> {
       channel: 'telegram' as const,
       tripId,
       recipient: { driverId: driver.id },
-      dedupeKey: `T1:trip:${tripId}:driver:${driver.id}`,
+      // В ключ входит момент назначения: после переноса или замены водителя
+      // должен уйти новый запрос, а не наткнуться на старый ключ.
+      dedupeKey: `T1:trip:${tripId}:driver:${driver.id}:${trip.driver_assigned_at ?? 'first'}`,
     };
 
     if (driver.telegram_chat_id === null) {
@@ -159,7 +164,7 @@ export async function notifyDriverTimeout(tripId: number): Promise<void> {
     channel: 'telegram' as const,
     tripId,
     recipient: { driverId: driver.id },
-    dedupeKey: `T2:trip:${tripId}:driver:${driver.id}`,
+    dedupeKey: `T2:trip:${tripId}:driver:${driver.id}:${trip.driver_assigned_at ?? 'first'}`,
   };
 
   if (driver.telegram_chat_id === null) {
@@ -209,7 +214,9 @@ async function notifyAhoDriverMissing(
           channel: 'teams',
           tripId: trip.id,
           recipient: { employeeId: person.id },
-          dedupeKey: `K14:trip:${trip.id}:${reason}:employee:${person.id}`,
+          dedupeKey:
+            `K14:trip:${trip.id}:${reason}:${trip.driver_assigned_at ?? 'first'}` +
+            `:employee:${person.id}`,
         },
         () => sendCard(person.id, person.entra_oid, card),
       ),
@@ -252,6 +259,54 @@ export async function notifyAuthorNoDriver(tripId: number): Promise<void> {
   );
 }
 
+/**
+ * Кнопки диалога возврата.
+ *
+ * Номер поездки в них не нужен: у водителя в пути одна поездка, и шаг
+ * выводится из неё. Поэтому кнопка не может относиться к чужой или прошлой
+ * поездке — проверять нечего.
+ */
+async function handleReturnCallback(callback: DriverCallback): Promise<void> {
+  const { data: driver, error } = await getDb()
+    .from('drivers')
+    .select('id')
+    .eq('telegram_chat_id', callback.chatId)
+    .maybeSingle<{ id: string }>();
+
+  if (error || !driver) {
+    await answerCallback(callback.callbackId, 'Вы не подключены как водитель.');
+    return;
+  }
+
+  const reply =
+    callback.data === 'cond:ok'
+      ? await acceptCondition(driver.id, true)
+      : callback.data === 'cond:remark'
+        ? await acceptCondition(driver.id, false)
+        : callback.data === 'note:skip'
+          ? await acceptNote(driver.id, '')
+          : await askReturnStep(driver.id);
+
+  if (!reply) {
+    await answerCallback(callback.callbackId, 'Этот шаг уже пройден.');
+    return;
+  }
+
+  await answerCallback(callback.callbackId);
+
+  try {
+    // Кнопки прежнего шага гасим: нажать «Да» второй раз уже нечего.
+    await closeTelegramButtons(callback.chatId, callback.messageId, 'Записал.');
+  } catch (closeError) {
+    console.error('Не удалось погасить кнопки шага возврата', closeError);
+  }
+
+  await sendTelegramMessage(callback.chatId, reply.text, {
+    buttons: reply.buttons,
+    withKeyboard: reply.buttons === undefined,
+  });
+}
+
 export interface DriverCallback {
   callbackId: string;
   chatId: number;
@@ -267,6 +322,12 @@ export interface DriverCallback {
  * ответить за другого водителя нельзя.
  */
 export async function handleDriverCallback(callback: DriverCallback): Promise<void> {
+  // Кнопки диалога возврата: состояние машины, пропуск примечания, начало.
+  if (['cond:ok', 'cond:remark', 'note:skip', 'return:start'].includes(callback.data)) {
+    await handleReturnCallback(callback);
+    return;
+  }
+
   const match = /^(confirm|decline):(\d+)$/.exec(callback.data);
 
   if (!match) {

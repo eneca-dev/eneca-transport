@@ -4,15 +4,17 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { getDb } from '@/config/supabase';
-import { AccessError, requireEmployee } from '@/lib/auth/currentEmployee';
+import { AccessError, requireEmployee, requireRole } from '@/lib/auth/currentEmployee';
 import { searchEmployees } from '@/modules/employees/queries';
 
 import { fromMinskInput } from './booking';
 import { listCarOptions, listDriverOptions } from './availability';
+import { cancelTrip, rescheduleTrip } from './changeService';
 import { notifyFinanceNewRequest } from '@/modules/documents/notify';
 
 import { notifyTripBooked } from './notify';
 import { notifyDriverAssigned } from './notifyDriver';
+import { correctClosedOdometer } from './odometerCorrection';
 import { getTripCard, listMyTrips } from './queries';
 import { submitReturn } from './returnService';
 
@@ -351,5 +353,163 @@ export async function submitTripReturn(
       : { success: false, error: 'Возврат записан, но карточку прочитать не удалось.' };
   } catch (error) {
     return failure(error, 'Не удалось оформить возврат.');
+  }
+}
+
+const rescheduleSchema = z.object({
+  startDate: z.string().regex(DATE, 'Укажите дату выезда'),
+  startTime: z.string().regex(TIME, 'Укажите время выезда'),
+  endDate: z.string().regex(DATE, 'Укажите дату возврата'),
+  endTime: z.string().regex(TIME, 'Укажите время возврата'),
+});
+
+export type RescheduleFormInput = z.infer<typeof rescheduleSchema>;
+
+/** Право менять заявку: автор или АХО. */
+type TripAccess =
+  | { ok: false; error: string }
+  | { ok: true; employeeId: string; card: TripCard };
+
+async function requireTripChanger(token: string, tripId: number): Promise<TripAccess> {
+  const employee = await requireEmployee(token);
+  const card = await getTripCard(tripId, employee.id);
+
+  if (!card) {
+    return { ok: false, error: 'Поездка не найдена.' };
+  }
+  if (!card.isAuthor && !employee.roles.includes('aho')) {
+    return { ok: false, error: 'Перенести или отменить заявку может автор или АХО.' };
+  }
+  return { ok: true, employeeId: employee.id, card };
+}
+
+/** «Перенести» в карточке поездки. */
+export async function rescheduleTripAction(
+  token: string,
+  tripId: number,
+  input: RescheduleFormInput,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const access = await requireTripChanger(token, tripId);
+    if (!access.ok) {
+      return { success: false, error: access.error };
+    }
+
+    const parsed = rescheduleSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
+    }
+
+    const startsAt = fromMinskInput(parsed.data.startDate, parsed.data.startTime);
+    const endsAt = fromMinskInput(parsed.data.endDate, parsed.data.endTime);
+
+    if (!startsAt || !endsAt) {
+      return { success: false, error: 'Проверьте даты и время поездки.' };
+    }
+
+    const outcome = await rescheduleTrip(tripId, access.employeeId, { startsAt, endsAt });
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/');
+    revalidatePath('/reception');
+    revalidatePath('/documents');
+
+    const updated = await getTripCard(tripId, access.employeeId);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Перенос сохранён, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось перенести поездку.');
+  }
+}
+
+/** «Отменить» в карточке поездки. */
+export async function cancelTripAction(
+  token: string,
+  tripId: number,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const access = await requireTripChanger(token, tripId);
+    if (!access.ok) {
+      return { success: false, error: access.error };
+    }
+
+    const outcome = await cancelTrip(tripId, access.employeeId);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/');
+    revalidatePath('/reception');
+    revalidatePath('/documents');
+
+    const updated = await getTripCard(tripId, access.employeeId);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Отмена сохранена, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось отменить поездку.');
+  }
+}
+
+const correctionSchema = z.object({
+  valueKm: z
+    .number({ error: 'Укажите показание одометра' })
+    .int('Только целое число')
+    .min(0, 'Не может быть отрицательным')
+    .max(10_000_000, 'Слишком большое значение'),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Причина исправления обязательна')
+    .max(300, 'Слишком длинная причина'),
+});
+
+export type CorrectionFormInput = z.infer<typeof correctionSchema>;
+
+/**
+ * Исправление показания у закрытой поездки. Только АХО и только с причиной —
+ * так записано в требованиях.
+ */
+export async function correctOdometerAction(
+  token: string,
+  tripId: number,
+  input: CorrectionFormInput,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const employee = await requireRole(token, 'aho');
+
+    const parsed = correctionSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
+    }
+
+    const outcome = await correctClosedOdometer(
+      tripId,
+      employee.id,
+      parsed.data.valueKm,
+      parsed.data.reason,
+    );
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/cars');
+    revalidatePath('/');
+
+    const updated = await getTripCard(tripId, employee.id);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Исправление сохранено, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось исправить показание.');
   }
 }

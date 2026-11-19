@@ -7,9 +7,13 @@ import { getDb } from '@/config/supabase';
 import { AccessError, requireRole } from '@/lib/auth/currentEmployee';
 
 import { listCars } from './queries';
+import { warnAboutRepair } from '@/modules/trips/affectedBookings';
+
+import { decideRemark } from './remarks';
 
 import type { ActionResult } from '@/lib/types';
 import type { Car } from './queries';
+import type { RemarkDecision } from './remarks';
 
 /**
  * Справочник машин (Э8). Ведёт только АХО — так записано в правах участников.
@@ -133,6 +137,10 @@ export async function startRepair(
       return { success: false, error: message };
     }
 
+    // Брони на эти даты не снимаем: по требованиям решение за человеком.
+    // Но автор и АХО должны узнать, что машины не будет.
+    await warnAboutRepair(carId, new Date().toISOString().slice(0, 10));
+
     revalidatePath('/cars');
     return { success: true, data: await listCars() };
   } catch (error) {
@@ -159,5 +167,32 @@ export async function finishRepair(token: string, carId: string): Promise<Action
     return { success: true, data: await listCars() };
   } catch (error) {
     return failure(error, 'Не удалось закрыть ремонт.');
+  }
+}
+
+/**
+ * Решение по замечанию или примечанию из возврата.
+ *
+ * `to_repair` вдобавок открывает период ремонта с текстом замечания — чтобы
+ * АХО не переписывала его руками.
+ */
+export async function decideCarRemark(
+  token: string,
+  tripId: number,
+  decision: RemarkDecision,
+): Promise<ActionResult<Car[]>> {
+  try {
+    const employee = await requireRole(token, 'aho');
+
+    const outcome = await decideRemark(tripId, decision, employee.id);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath('/cars');
+    return { success: true, data: await listCars() };
+  } catch (error) {
+    return failure(error, 'Не удалось закрыть замечание.');
   }
 }

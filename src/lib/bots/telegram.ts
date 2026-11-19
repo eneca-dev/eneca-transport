@@ -42,18 +42,40 @@ async function callTelegram<T>(method: string, body: unknown): Promise<T> {
   return payload.result;
 }
 
+/**
+ * Постоянная кнопка под полем ввода. Требование к боту водителя: «Мои поездки»
+ * доступны в любой момент, а не только из последнего сообщения.
+ */
+const PERSISTENT_KEYBOARD = {
+  keyboard: [[{ text: 'Мои поездки' }]],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+export interface SendOptions {
+  /** Кнопки под сообщением: ответ приходит как callback_query. */
+  buttons?: InlineButton[];
+  /** Показать постоянную кнопку «Мои поездки» под полем ввода. */
+  withKeyboard?: boolean;
+}
+
 /** Отправить сообщение. Возвращает идентификатор — по нему правят кнопки. */
 export async function sendTelegramMessage(
   chatId: number,
   text: string,
-  buttons?: InlineButton[],
+  options: SendOptions | InlineButton[] = {},
 ): Promise<number> {
+  // Массив вторым аргументом — старая форма вызова: только кнопки.
+  const { buttons, withKeyboard } = Array.isArray(options) ? { buttons: options } : options;
+
   const result = await callTelegram<{ message_id: number }>('sendMessage', {
     chat_id: chatId,
     text,
     reply_markup: buttons
       ? { inline_keyboard: [buttons.map((b) => ({ text: b.text, callback_data: b.data }))] }
-      : undefined,
+      : withKeyboard
+        ? PERSISTENT_KEYBOARD
+        : undefined,
   });
 
   return result.message_id;

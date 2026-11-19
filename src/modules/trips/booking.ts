@@ -55,6 +55,12 @@ export function fromMinskInput(date: string, time: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+const hourFormat = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: APP_TIMEZONE,
+  hour: '2-digit',
+  hour12: false,
+});
+
 const dateParts = new Intl.DateTimeFormat('ru-RU', {
   timeZone: APP_TIMEZONE,
   year: 'numeric',
@@ -69,6 +75,16 @@ const dateParts = new Intl.DateTimeFormat('ru-RU', {
  * и сравнивать их надо с минским днём, а не с днём по UTC. Поездка, начатая в
  * 01:00 по Минску, по UTC приходится на предыдущие сутки.
  */
+/**
+ * Текущий час по минскому времени, 0–23.
+ *
+ * Нужен напоминаниям: «накануне выезда, 17:00» — это минские 17:00, а не час
+ * по UTC и не час на машине, где крутится планировщик.
+ */
+export function minskHour(date: Date): number {
+  return Number(hourFormat.format(date));
+}
+
 /**
  * Начало и конец минских суток, в которые попадает момент.
  *

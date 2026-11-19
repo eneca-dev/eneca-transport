@@ -34,6 +34,11 @@ export const APP_ID_URI = `api://${APP_DOMAIN}/botid-${ENTRA_CLIENT_ID}`;
  * что объявлен в манифесте (`trips`), а номер поездки передаётся в `context`
  * и читается вкладкой из `app.getContext().page.subPageId`.
  */
+/** Ссылка на саму вкладку, без конкретной поездки. */
+export function screenDeepLink(): string {
+  return `https://teams.microsoft.com/l/entity/${ENTRA_CLIENT_ID}/trips`;
+}
+
 export function tripDeepLink(tripId: number): string {
   const context = encodeURIComponent(JSON.stringify({ subEntityId: `trip-${tripId}` }));
   return (
@@ -43,6 +48,19 @@ export function tripDeepLink(tripId: number): string {
 }
 /** Буфер на подготовку автомобиля между поездками. Дублируется в fn_booking_buffer(). */
 export const BOOKING_BUFFER_MINUTES = 10;
+
+/**
+ * Часы напоминаний по минскому времени.
+ *
+ * 17:00 накануне выезда — из требований дословно. Утренняя сводка рецепции и
+ * напоминание о несданных ключах времени в требованиях не имеют: взяты так,
+ * чтобы сводка пришла до начала выдач, а о ключах напомнило после.
+ */
+export const REMINDER_EVE_HOUR = 17;
+
+export const RECEPTION_MORNING_HOUR = 7;
+
+export const OVERDUE_REMINDER_HOUR = 8;
 
 /** Сколько минут водителю даётся на подтверждение назначения (Т1). */
 export const DRIVER_CONFIRMATION_MINUTES = 15;

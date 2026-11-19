@@ -56,7 +56,11 @@ export async function POST(request: Request) {
           [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || null,
       };
 
-      await sendTelegramMessage(sender.chatId, await replyToDriver(sender, message.text));
+      const reply = await replyToDriver(sender, message.text);
+      await sendTelegramMessage(sender.chatId, reply.text, {
+        buttons: reply.buttons,
+        withKeyboard: reply.withKeyboard,
+      });
     }
   } catch (error) {
     // Отвечаем 200: при ошибке Telegram повторяет доставку того же обновления,

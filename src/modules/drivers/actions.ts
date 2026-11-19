@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { getDb } from '@/config/supabase';
 import { AccessError, requireRole } from '@/lib/auth/currentEmployee';
 
+import { warnAboutDriverAway } from '@/modules/trips/affectedBookings';
+
 import { listDrivers } from './queries';
 import { issueCode } from './telegram';
 
@@ -208,7 +210,12 @@ export async function addUnavailability(
       return { success: false, error: message };
     }
 
+    // Поездки на эти даты теряют водителя: он точно не поедет. Брони машин
+    // сохраняются, авторы и АХО получают К13.
+    await warnAboutDriverAway(driverId, parsed.data.since, parsed.data.until, parsed.data.reason);
+
     revalidatePath('/drivers');
+    revalidatePath('/');
     return { success: true, data: await listDrivers() };
   } catch (error) {
     return failure(error, 'Не удалось отметить период.');

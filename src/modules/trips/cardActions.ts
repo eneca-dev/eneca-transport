@@ -1,6 +1,11 @@
 import 'server-only';
 
 import { getDb } from '@/config/supabase';
+import { decideRemark } from '@/modules/cars/remarks';
+import { notifyFinanceNewRequest } from '@/modules/documents/notify';
+import { cancelTrip } from './changeService';
+import { notifyTripChanged } from './notifyChange';
+import { submitReturn } from './returnService';
 import { setDocsReady } from '@/modules/documents/service';
 import { findEmployeeByOid } from '@/modules/employees/queries';
 
@@ -36,6 +41,11 @@ async function dropDriver(trip: TripRow, employeeId: string): Promise<CardAction
   if (!trip.needs_driver) {
     return { message: 'Поездка уже без водителя.', done: true };
   }
+  if (trip.keys_issued_at !== null) {
+    // Машина уже в пути. Снимать водителя с начатой поездки нельзя: кто-то
+    // сейчас за рулём, и в документах он указан.
+    return { message: 'Ключи уже выданы — состав поездки менять поздно.', done: true };
+  }
 
   const db = getDb();
 
@@ -64,6 +74,16 @@ async function dropDriver(trip: TripRow, employeeId: string): Promise<CardAction
     actor_employee: employeeId,
   });
 
+  // Состав поездки изменился: участники, рецепция и финотдел узнают об этом из
+  // К12, а финотдел ещё и получает заявку на повторную проверку.
+  await notifyTripChanged(
+    trip.id,
+    'driver_changed',
+    'Водитель не нужен — автор поедет сам',
+    'driver_dropped',
+  );
+  await notifyFinanceNewRequest(trip.id, `recheck:driver-dropped:${Date.now()}`);
+
   return {
     message: [
       'Поедете сами, бронь автомобиля сохранена.',
@@ -74,47 +94,46 @@ async function dropDriver(trip: TripRow, employeeId: string): Promise<CardAction
   };
 }
 
-/** «Отменить поездку» по К16. */
-async function cancelTrip(trip: TripRow, employeeId: string): Promise<CardActionResult> {
-  if (trip.status === 'cancelled') {
-    return { message: 'Поездка уже отменена.', done: true };
-  }
-  if (trip.keys_issued_at !== null) {
-    // Инвариант требований: отмена доступна только до выдачи ключей.
-    return { message: 'Ключи уже выданы — отменить поездку нельзя.', done: true };
-  }
+/**
+ * Возврат, присланный полями карточки К8.
+ *
+ * Значения приходят строками: Teams складывает содержимое полей рядом с
+ * данными кнопки. Пустой одометр — не ноль, иначе поездка закрылась бы с
+ * нулевым пробегом.
+ */
+async function submitReturnFromCard(
+  tripId: number,
+  employeeId: string,
+  value: unknown,
+): Promise<CardActionResult> {
+  const { odometer, condition, note } = value as {
+    odometer?: unknown;
+    condition?: unknown;
+    note?: unknown;
+  };
 
-  const db = getDb();
-  const now = new Date().toISOString();
+  const digits = typeof odometer === 'string' ? odometer.replace(/D/g, '') : '';
 
-  const { error } = await db
-    .from('trips')
-    .update({
-      status: 'cancelled',
-      cancelled_at: now,
-      cancelled_by: employeeId,
-      updated_at: now,
-    })
-    .eq('id', trip.id);
-
-  if (error) {
-    console.error(`Поездка #${trip.id}: не удалось отменить`, error);
-    return { message: 'Не получилось отменить. Попробуйте ещё раз.', done: false };
+  if (digits === '') {
+    return { message: 'Укажите показание одометра и отправьте снова.', done: false };
   }
 
-  await db.from('trip_events').insert({
-    trip_id: trip.id,
-    kind: 'cancelled',
-    payload: { by: 'author_choice' },
-    actor_employee: employeeId,
-  });
+  const outcome = await submitReturn(
+    tripId,
+    { employeeId },
+    {
+      odometerKm: Number(digits),
+      conditionOk: condition !== 'remark',
+      note: typeof note === 'string' ? note : '',
+    },
+  );
 
-  // Триггер базы обнуляет booking_during у отменённой поездки, поэтому машина и
-  // водитель освобождаются сами — освобождать их вручную не нужно.
+  if (!outcome.ok) {
+    return { message: outcome.reason, done: false };
+  }
+
   return {
-    message:
-      'Поездка отменена, автомобиль освобождён. ' +
-      'Она останется в «Моих поездках» со статусом «Отменена».',
+    message: 'Показание записано. Сдайте ключи на рецепции — поездка закроется, когда их примут.',
     done: true,
   };
 }
@@ -164,9 +183,20 @@ export async function handleCardAction(
       if (trip.author_id !== employee.id && !isAho) {
         return { message: 'Это решение принимает автор поездки.', done: false };
       }
-      return action === 'trip_cancel'
-        ? cancelTrip(trip, employee.id)
-        : dropDriver(trip, employee.id);
+      if (action === 'trip_cancel') {
+        // Та же функция, что за кнопкой «Отменить» в карточке поездки: отмена
+        // обязана рассылать К12 и Т4, а две копии логики однажды разойдутся.
+        const outcome = await cancelTrip(trip.id, employee.id);
+        return outcome.ok
+          ? {
+              message:
+                'Поездка отменена, автомобиль освобождён. ' +
+                'Она останется в «Моих поездках» со статусом «Отменена».',
+              done: true,
+            }
+          : { message: outcome.reason, done: false };
+      }
+      return dropDriver(trip, employee.id);
     }
     case 'docs_ready': {
       if (!employee.roles.includes('finance') && !isAho) {
@@ -183,6 +213,36 @@ export async function handleCardAction(
             done: true,
           }
         : { message: outcome.reason, done: false };
+    }
+    case 'trip_return': {
+      // Возврат по К8 оформляет автор. Поездку с водителем возвращает водитель
+      // из Telegram, и карточка К8 для неё не отправляется.
+      if (trip.author_id !== employee.id && !isAho) {
+        return { message: 'Возврат оформляет автор поездки.', done: false };
+      }
+      return submitReturnFromCard(trip.id, employee.id, value);
+    }
+    case 'car_to_repair':
+    case 'remark_handled': {
+      // Замечания по машине ведёт АХО: она решает, ехать машине или в ремонт.
+      if (!isAho) {
+        return { message: 'Решение по замечанию принимает АХО.', done: false };
+      }
+      const outcome = await decideRemark(
+        trip.id,
+        action === 'car_to_repair' ? 'to_repair' : 'handled',
+        employee.id,
+      );
+      if (!outcome.ok) {
+        return { message: outcome.reason, done: false };
+      }
+      return {
+        message:
+          action === 'car_to_repair'
+            ? 'Машина отправлена в ремонт, замечание закрыто. В заявках она больше не предлагается.'
+            : 'Замечание закрыто.',
+        done: true,
+      };
     }
     default:
       return null;

@@ -4,6 +4,11 @@ import { DRIVER_CONFIRMATION_MINUTES } from '@/config/app';
 import { getDb } from '@/config/supabase';
 
 import { notifyAuthorNoDriver, notifyDriverTimeout } from './notifyDriver';
+import { notifyDriverReturnDue } from './notifyDriverReturn';
+import { notifyReturnDue } from './notifyReturnDue';
+import { runReminders } from './reminders';
+
+import type { RemindersResult } from './reminders';
 
 /**
  * Сроки, за которыми следит планировщик.
@@ -29,6 +34,12 @@ export interface TickResult {
    * автора и попадает в счётчик каждый проход.
    */
   tripsWithoutDriver: number;
+  /** Поездок без водителя, которым пора оформить возврат. */
+  returnsDue: number;
+  /** Поездок с водителем, которым пора оформить возврат. */
+  driverReturnsDue: number;
+  /** Напоминания: накануне выезда, сводка рецепции, несданные ключи. */
+  reminders: RemindersResult;
 }
 
 interface TripIdRow {
@@ -125,12 +136,89 @@ async function askAuthorsWithoutDriver(): Promise<number> {
   return trips.length;
 }
 
+/**
+ * Плановое время возврата наступило, а показания одометра нет.
+ *
+ * Только для поездок без водителя: с водителем возврат начинает он сам из
+ * Telegram, и вторая точка ввода одометра создала бы расхождение.
+ *
+ * Состояние поездки не меняется, поэтому каждый проход найдёт её снова —
+ * от повторной отправки защищает занятый ключ `K8:trip:N`.
+ */
+async function askAuthorsToReturn(): Promise<number> {
+  const db = getDb();
+
+  const { data, error } = await db
+    .from('trips')
+    .select('id')
+    .eq('status', 'in_trip')
+    .eq('needs_driver', false)
+    .is('odometer_end_km', null)
+    .lte('ends_at', new Date().toISOString())
+    .returns<TripIdRow[]>();
+
+  if (error) {
+    throw new Error(`Не удалось найти поездки к возврату: ${error.message}`);
+  }
+
+  const trips = data ?? [];
+
+  for (const trip of trips) {
+    try {
+      await notifyReturnDue(trip.id);
+    } catch (notifyError) {
+      console.error(`Поездка #${trip.id}: К8 не ушла`, notifyError);
+    }
+  }
+
+  return trips.length;
+}
+
+/**
+ * Плановое время возврата у поездки С водителем: начинаем разговор в Telegram.
+ *
+ * Отдельно от поездок без водителя, потому что получатель другой и канал
+ * другой. Условие одно: показания одометра ещё нет.
+ */
+async function askDriversToReturn(): Promise<number> {
+  const db = getDb();
+
+  const { data, error } = await db
+    .from('trips')
+    .select('id')
+    .eq('status', 'in_trip')
+    .eq('needs_driver', true)
+    .not('driver_id', 'is', null)
+    .is('odometer_end_km', null)
+    .lte('ends_at', new Date().toISOString())
+    .returns<TripIdRow[]>();
+
+  if (error) {
+    throw new Error(`Не удалось найти поездки водителей к возврату: ${error.message}`);
+  }
+
+  const trips = data ?? [];
+
+  for (const trip of trips) {
+    try {
+      await notifyDriverReturnDue(trip.id);
+    } catch (notifyError) {
+      console.error(`Поездка #${trip.id}: Т5 не ушла`, notifyError);
+    }
+  }
+
+  return trips.length;
+}
+
 /** Один проход планировщика. */
 export async function runDeadlines(): Promise<TickResult> {
   // Сначала сроки подтверждения: поездка, у которой только что вышли 15 минут,
   // должна успеть получить статус до проверки «нет подтверждённого водителя».
   const driverTimeouts = await expireDriverConfirmations();
   const tripsWithoutDriver = await askAuthorsWithoutDriver();
+  const returnsDue = await askAuthorsToReturn();
+  const driverReturnsDue = await askDriversToReturn();
+  const reminders = await runReminders();
 
-  return { driverTimeouts, tripsWithoutDriver };
+  return { driverTimeouts, tripsWithoutDriver, returnsDue, driverReturnsDue, reminders };
 }

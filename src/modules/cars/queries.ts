@@ -2,6 +2,10 @@ import 'server-only';
 
 import { getDb } from '@/config/supabase';
 
+import { listOpenRemarks } from './remarks';
+
+import type { CarRemark } from './remarks';
+
 export interface Car {
   id: string;
   plate: string;
@@ -13,6 +17,8 @@ export interface Car {
   /** Причина и начало текущего ремонта, если он идёт. */
   repairNote: string | null;
   repairSince: string | null;
+  /** Замечания и примечания из возвратов, которые АХО ещё не закрыла. */
+  remarks: CarRemark[];
 }
 
 interface CarRow {
@@ -60,6 +66,12 @@ export async function listCars(): Promise<Car[]> {
 
   const openRepairs = new Map((repairs ?? []).map((r) => [r.car_id, r]));
 
+  const remarks = await listOpenRemarks();
+  const remarksByCar = new Map<string, CarRemark[]>();
+  for (const remark of remarks) {
+    remarksByCar.set(remark.carId, [...(remarksByCar.get(remark.carId) ?? []), remark]);
+  }
+
   return (cars ?? []).map((car) => {
     const repair = openRepairs.get(car.id);
     return {
@@ -71,6 +83,7 @@ export async function listCars(): Promise<Car[]> {
       inRepair: car.in_repair,
       repairNote: repair?.note ?? null,
       repairSince: repair?.since ?? null,
+      remarks: remarksByCar.get(car.id) ?? [],
     };
   });
 }

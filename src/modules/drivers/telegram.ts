@@ -3,6 +3,14 @@ import 'server-only';
 import { randomInt } from 'node:crypto';
 
 import { getDb } from '@/config/supabase';
+import {
+  acceptNote,
+  acceptOdometer,
+  askReturnStep,
+  listDriverTrips,
+} from '@/modules/trips/driverReturn';
+
+import type { BotReply } from '@/modules/trips/driverReturn';
 
 /**
  * Привязка Telegram водителя.
@@ -92,28 +100,88 @@ interface AttemptsRow {
 
 const CODE_PATTERN = new RegExp(`^\\d{${CODE_DIGITS}}$`);
 
-/** Ответ бота на сообщение водителя. Возвращает текст, отправку делает вебхук. */
-export async function replyToDriver(sender: TelegramSender, text: string): Promise<string> {
+/** Водитель, привязанный к этому чату. */
+async function driverByChat(chatId: number): Promise<{ id: string; full_name: string } | null> {
+  const { data, error } = await getDb()
+    .from('drivers')
+    .select('id, full_name')
+    .eq('telegram_chat_id', chatId)
+    .maybeSingle<{ id: string; full_name: string }>();
+
+  if (error) {
+    console.error('Не удалось найти водителя по чату', error);
+    return null;
+  }
+  return data;
+}
+
+/**
+ * Ответ бота на сообщение водителя. Отправку делает вебхук.
+ *
+ * Порядок проверок важен. Код привязки — шесть цифр, показание одометра тоже
+ * цифры. Поэтому сначала смотрим, не привязан ли уже этот чат, и только у
+ * непривязанного считаем цифры кодом. Иначе водитель с шестизначным одометром
+ * привязывался бы заново вместо сдачи машины.
+ */
+export async function replyToDriver(sender: TelegramSender, text: string): Promise<BotReply> {
   const message = text.trim();
+  const driver = sender.isPrivate ? await driverByChat(sender.chatId) : null;
+
+  if (driver) {
+    if (message === 'Мои поездки') {
+      return listDriverTrips(driver.id);
+    }
+
+    if (/^\d+$/.test(message)) {
+      const odometer = await acceptOdometer(driver.id, message);
+      if (odometer) {
+        return odometer;
+      }
+    }
+
+    // Любой другой текст во время возврата — это примечание.
+    const note = await acceptNote(driver.id, message);
+    if (note) {
+      return note;
+    }
+
+    const step = await askReturnStep(driver.id);
+    if (step) {
+      return step;
+    }
+
+    return {
+      text: [
+        `Вы подключены как ${driver.full_name}.`,
+        '',
+        'Назначения придут сюда сами. Нажмите «Мои поездки», чтобы посмотреть, что за вами.',
+      ].join('\n'),
+      withKeyboard: true,
+    };
+  }
 
   if (CODE_PATTERN.test(message)) {
     // В группе привязка запрещена: иначе назначения на поездки с фамилиями
     // пассажиров ушли бы всем участникам чата.
     if (!sender.isPrivate) {
-      return 'Код вводится только в личной переписке с ботом, не в группе.';
+      return { text: 'Код вводится только в личной переписке с ботом, не в группе.' };
     }
-    return bindByCode(message, sender);
+    return { text: await bindByCode(message, sender), withKeyboard: true };
   }
 
   if (message.startsWith('/start')) {
-    return [
-      'Это бот командировок ЭНЭКА. Через него приходят назначения на поездки.',
-      '',
-      `Введите код из ${CODE_DIGITS} цифр, который выдали в АХО.`,
-    ].join('\n');
+    return {
+      text: [
+        'Это бот командировок ЭНЭКА. Через него приходят назначения на поездки.',
+        '',
+        `Введите код из ${CODE_DIGITS} цифр, который выдали в АХО.`,
+      ].join('\n'),
+    };
   }
 
-  return `Пока вы не подключены. Введите код из ${CODE_DIGITS} цифр, который выдали в АХО.`;
+  return {
+    text: `Пока вы не подключены. Введите код из ${CODE_DIGITS} цифр, который выдали в АХО.`,
+  };
 }
 
 /** Привязать чат к водителю по коду. */

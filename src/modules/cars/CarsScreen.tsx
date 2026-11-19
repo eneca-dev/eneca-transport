@@ -6,7 +6,14 @@ import { Plus } from 'lucide-react';
 import { BUTTON_PRIMARY_SM } from '@/components/controls';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
-import { createCar, finishRepair, loadCars, startRepair, updateCar } from './actions';
+import {
+  createCar,
+  decideCarRemark,
+  finishRepair,
+  loadCars,
+  startRepair,
+  updateCar,
+} from './actions';
 import { CarForm } from './CarForm';
 import { CarRow } from './CarRow';
 import { RepairForm } from './RepairForm';
@@ -152,6 +159,9 @@ export function CarsScreen() {
                   setRepairing(car);
                 }}
                 onFinishRepair={() => run((token) => finishRepair(token, car.id))}
+                onDecideRemark={(tripId, decision) =>
+                  run((token) => decideCarRemark(token, tripId, decision))
+                }
               />
             );
           })}

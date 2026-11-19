@@ -2,7 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Car, FileText, KeyRound, Route, UserRound } from 'lucide-react';
+import {
+  CalendarDays,
+  Car,
+  FileText,
+  History,
+  KeyRound,
+  Route,
+  UserRound,
+} from 'lucide-react';
 
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
@@ -20,10 +28,12 @@ interface NavItem {
 // Разделы добавляются по мере готовности экранов: мёртвых ссылок в меню нет.
 const NAV: NavItem[] = [
   { href: '/', label: 'Мои поездки', icon: Route },
+  { href: '/calendar', label: 'Календарь', icon: CalendarDays, roles: ['aho'] },
   { href: '/reception', label: 'Рецепция', icon: KeyRound, roles: ['reception', 'aho'] },
   { href: '/documents', label: 'Документы', icon: FileText, roles: ['finance', 'aho'] },
   { href: '/cars', label: 'Машины', icon: Car, roles: ['aho'] },
   { href: '/drivers', label: 'Водители', icon: UserRound, roles: ['aho'] },
+  { href: '/history', label: 'История', icon: History, roles: ['aho'] },
 ];
 
 /** «Александра Бирило» → «АБ». Нужны первые буквы двух первых слов. */

@@ -4,11 +4,19 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { ArrowLeft } from 'lucide-react';
 
-import { BADGE, BADGE_DOT, BUTTON_PRIMARY } from '@/components/controls';
+import { BADGE, BADGE_DOT, BUTTON_PRIMARY, BUTTON_SECONDARY } from '@/components/controls';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatMoment, formatPeriod } from '@/lib/datetime';
 
-import { loadTripCard, submitTripReturn } from './actions';
+import {
+  cancelTripAction,
+  correctOdometerAction,
+  loadTripCard,
+  rescheduleTripAction,
+  submitTripReturn,
+} from './actions';
+import { CorrectionForm } from './CorrectionForm';
+import { RescheduleForm } from './RescheduleForm';
 import { ReturnForm } from './ReturnForm';
 import {
   CONFIRMATION_LABEL,
@@ -50,11 +58,14 @@ function eventLabel(event: TripEvent): string {
 }
 
 export function TripCardScreen({ tripId }: TripCardScreenProps) {
-  const { getToken } = useTeamsAuth();
+  const { employee, getToken } = useTeamsAuth();
 
   const [trip, setTrip] = useState<TripCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [returning, setReturning] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [correctingClosed, setCorrectingClosed] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const load = useCallback(() => {
@@ -76,16 +87,55 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
   useEffect(load, [load]);
 
   /**
-   * «Оформить возврат» показывается только автору поездки без водителя:
-   * поездку с водителем возвращает сам водитель из Telegram, и две точки
-   * ввода одометра расходились бы.
+   * Возврат оформляет и исправляет автор поездки без водителя: поездку с
+   * водителем возвращает сам водитель из Telegram, и две точки ввода одометра
+   * расходились бы.
+   *
+   * Исправление доступно, пока рецепция не приняла ключи — так записано в
+   * требованиях: «ошибка до закрытия поездки — отправитель исправляет своё
+   * значение, пробег пересчитывается».
    */
   const canReturn =
+    trip !== null && trip.status === 'in_trip' && !trip.needsDriver && trip.isAuthor;
+  const correcting = trip !== null && trip.odometerEndKm !== null;
+
+  /**
+   * Перенос и отмена — до выдачи ключей, автору или АХО. После выдачи поездка
+   * идёт своим ходом: отменять выданную машину бессмысленно, её принимают.
+   *
+   * Право АХО проверяет сервер; здесь кнопки показываются автору, а АХО видит
+   * их в любой поездке.
+   */
+  const canChange =
     trip !== null &&
-    trip.status === 'in_trip' &&
-    trip.odometerEndKm === null &&
-    !trip.needsDriver &&
-    trip.isAuthor;
+    ['booked', 'docs_ready'].includes(trip.status) &&
+    trip.keysIssuedAt === null;
+
+  /** Одно действие за раз: иначе непонятно, что сохранится. */
+  function closeForms() {
+    setReturning(false);
+    setRescheduling(false);
+    setConfirmCancel(false);
+    setCorrectingClosed(false);
+  }
+
+  /** Обновить карточку после действия, показав ошибку, если она была. */
+  function apply(action: (token: string) => Promise<Awaited<ReturnType<typeof loadTripCard>>>) {
+    startTransition(async () => {
+      try {
+        const result = await action(await getToken());
+        if (result.success) {
+          setTrip(result.data);
+          setError(null);
+          closeForms();
+        } else {
+          setError(result.error);
+        }
+      } catch {
+        setError('Не удалось связаться с сервером. Попробуйте ещё раз.');
+      }
+    });
+  }
 
   if (error) {
     return (
@@ -204,20 +254,132 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         </dl>
       </div>
 
-      {canReturn && !returning && (
-        <button
-          type="button"
-          onClick={() => setReturning(true)}
-          className={`${BUTTON_PRIMARY} mt-4`}
-        >
-          Оформить возврат
-        </button>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {canReturn && !returning && (
+          <button
+            type="button"
+            onClick={() => {
+              closeForms();
+              setReturning(true);
+            }}
+            className={BUTTON_PRIMARY}
+          >
+            {correcting ? 'Исправить показание' : 'Оформить возврат'}
+          </button>
+        )}
+
+        {/* Исправление после закрытия — только АХО и только с причиной. */}
+        {trip !== null &&
+          trip.status === 'closed' &&
+          trip.odometerEndKm !== null &&
+          employee.roles.includes('aho') &&
+          !correctingClosed && (
+            <button
+              type="button"
+              onClick={() => {
+                closeForms();
+                setCorrectingClosed(true);
+              }}
+              className={BUTTON_SECONDARY}
+            >
+              Исправить показание
+            </button>
+          )}
+
+        {canChange && !rescheduling && !confirmCancel && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                closeForms();
+                setRescheduling(true);
+              }}
+              className={BUTTON_SECONDARY}
+            >
+              Перенести
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                closeForms();
+                setConfirmCancel(true);
+              }}
+              className={`${BUTTON_SECONDARY} text-bad-fg`}
+            >
+              Отменить
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Отмена необратима и освобождает машину, поэтому спрашиваем ещё раз.
+          Своим диалогом, а не браузерным: Teams его не показывает. */}
+      {confirmCancel && trip && (
+        <div className="mt-4 rounded-lg border border-bad-line bg-bad p-4 text-sm text-bad-fg">
+          <p className="font-medium">Отменить поездку #{trip.id}?</p>
+          <p className="mt-1">
+            Машина и водитель освободятся, подготовка документов прекратится. Отменённую поездку
+            не вернуть — придётся оформлять заявку заново.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => apply((token) => cancelTripAction(token, tripId))}
+              disabled={pending}
+              className={BUTTON_PRIMARY}
+            >
+              Да, отменить
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmCancel(false)}
+              disabled={pending}
+              className={BUTTON_SECONDARY}
+            >
+              Не отменять
+            </button>
+          </div>
+        </div>
+      )}
+
+      {correctingClosed && trip && trip.odometerEndKm !== null && (
+        <div className="mt-4">
+          <CorrectionForm
+            odometerStartKm={trip.odometerStartKm}
+            odometerEndKm={trip.odometerEndKm}
+            pending={pending}
+            onCancel={() => setCorrectingClosed(false)}
+            onSubmit={(input) => apply((token) => correctOdometerAction(token, tripId, input))}
+          />
+        </div>
+      )}
+
+      {rescheduling && trip && (
+        <div className="mt-4">
+          <RescheduleForm
+            startsAt={trip.startsAt}
+            endsAt={trip.endsAt}
+            hasDriver={trip.needsDriver}
+            pending={pending}
+            onCancel={() => setRescheduling(false)}
+            onSubmit={(input) => apply((token) => rescheduleTripAction(token, tripId, input))}
+          />
+        </div>
       )}
 
       {returning && trip && (
         <div className="mt-4">
           <ReturnForm
             odometerStartKm={trip.odometerStartKm}
+            current={
+              correcting
+                ? {
+                    odometerKm: trip.odometerEndKm,
+                    conditionOk: trip.conditionOk,
+                    note: trip.returnNote,
+                  }
+                : undefined
+            }
             pending={pending}
             onCancel={() => setReturning(false)}
             onSubmit={(input) =>

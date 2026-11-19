@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getDb } from '@/config/supabase';
 
+import { notifyDriverTripClosed } from './notifyDriverReturn';
 import { notifyAhoOdometerTooLow, notifyAhoRemark, notifyTripClosed } from './notifyReturn';
 
 /**
@@ -227,6 +228,8 @@ export async function acceptKeys(tripId: number, employeeId: string): Promise<Re
   }
 
   await notifyTripClosed(tripId);
+  // Водителю — Т6, если поездка была с водителем.
+  await notifyDriverTripClosed(tripId);
 
   return { ok: true };
 }

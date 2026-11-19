@@ -10,6 +10,15 @@ import type { ReturnFormInput } from './actions';
 interface ReturnFormProps {
   /** Начальное показание: подсказка, чтобы человек не перепутал цифры. */
   odometerStartKm: number | null;
+  /**
+   * Уже отправленный возврат. Задан — значит человек исправляет свои же
+   * цифры: по требованиям до закрытия поездки это разрешено.
+   */
+  current?: {
+    odometerKm: number | null;
+    conditionOk: boolean | null;
+    note: string | null;
+  };
   pending: boolean;
   onSubmit: (input: ReturnFormInput) => void;
   onCancel: () => void;
@@ -22,10 +31,20 @@ interface ReturnFormProps {
  * порядке», потом примечание. Примечание необязательно, но его просят у всех —
  * забытые вещи находятся чаще, чем поломки.
  */
-export function ReturnForm({ odometerStartKm, pending, onSubmit, onCancel }: ReturnFormProps) {
-  const [odometer, setOdometer] = useState('');
-  const [conditionOk, setConditionOk] = useState(true);
-  const [note, setNote] = useState('');
+export function ReturnForm({
+  odometerStartKm,
+  current,
+  pending,
+  onSubmit,
+  onCancel,
+}: ReturnFormProps) {
+  const correcting = current?.odometerKm != null;
+
+  const [odometer, setOdometer] = useState(
+    current?.odometerKm != null ? String(current.odometerKm) : '',
+  );
+  const [conditionOk, setConditionOk] = useState(current?.conditionOk ?? true);
+  const [note, setNote] = useState(current?.note ?? '');
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -43,7 +62,16 @@ export function ReturnForm({ odometerStartKm, pending, onSubmit, onCancel }: Ret
 
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border border-line bg-surface-soft p-4">
-      <p className="mb-3 text-sm font-medium">Оформить возврат</p>
+      <p className="mb-3 text-sm font-medium">
+        {correcting ? 'Исправить показание' : 'Оформить возврат'}
+      </p>
+
+      {correcting && (
+        <p className="mb-3 text-xs text-fg-soft">
+          Исправить можно, пока рецепция не приняла ключи. Прежнее значение останется в истории
+          показаний.
+        </p>
+      )}
 
       <label className="block">
         <span className={label}>Показание одометра, км</span>
@@ -121,16 +149,18 @@ export function ReturnForm({ odometerStartKm, pending, onSubmit, onCancel }: Ret
 
       <div className="mt-4 flex gap-2">
         <button type="submit" disabled={pending} className={BUTTON_PRIMARY}>
-          Отправить
+          {correcting ? 'Сохранить' : 'Отправить'}
         </button>
         <button type="button" onClick={onCancel} disabled={pending} className={BUTTON_GHOST}>
           Отмена
         </button>
       </div>
 
-      <p className="mt-3 text-xs text-fg-soft">
-        После отправки сдайте ключи на рецепции — поездка закроется, когда их примут.
-      </p>
+      {!correcting && (
+        <p className="mt-3 text-xs text-fg-soft">
+          После отправки сдайте ключи на рецепции — поездка закроется, когда их примут.
+        </p>
+      )}
     </form>
   );
 }
