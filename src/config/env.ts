@@ -29,6 +29,23 @@ export const serverEnv = {
   get telegramBotToken() {
     return required('TELEGRAM_BOT_TOKEN');
   },
+  /**
+   * Teams-бот. Регистрация у него своя, не та, что у вкладки: бот заведён в
+   * Developer Portal, поэтому его идентификатор не равен entraClientId.
+   */
+  get teamsBotId() {
+    return required('MICROSOFT_APP_ID');
+  },
+  get teamsBotPassword() {
+    return required('MICROSOFT_APP_PASSWORD');
+  },
+  /**
+   * Тенант, который выдаёт боту токен. При SingleTenant это тенант ЭНЭКА, а не
+   * общий центр botframework.com — иначе Bot Connector отвечает 401.
+   */
+  get teamsBotTenantId() {
+    return required('MICROSOFT_APP_TENANT_ID');
+  },
   /** Секрет задач по расписанию. Vercel Cron передаёт его в Authorization. */
   get cronSecret() {
     return required('CRON_SECRET');

@@ -2,6 +2,7 @@ import './globals.css';
 
 import { AppShell } from '@/components/AppShell';
 import { TeamsAuthProvider } from '@/components/TeamsAuth';
+import { TeamsDeepLink } from '@/components/TeamsDeepLink';
 import { TeamsTheme } from '@/components/TeamsTheme';
 import { APP_NAME } from '@/config/app';
 
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
         {/* Тема применяется и когда вход не удался: сообщение об ошибке тоже
             должно быть в цветах клиента. */}
         <TeamsTheme />
+        <TeamsDeepLink />
         <TeamsAuthProvider>
           <AppShell>{children}</AppShell>
         </TeamsAuthProvider>

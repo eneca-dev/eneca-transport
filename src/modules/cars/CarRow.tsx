@@ -1,7 +1,7 @@
 'use client';
 
 import { BADGE, BADGE_DOT, BUTTON_SECONDARY } from '@/components/controls';
-import { APP_TIMEZONE } from '@/config/app';
+import { formatDay } from '@/lib/datetime';
 
 import type { Car } from './queries';
 
@@ -12,12 +12,6 @@ interface CarRowProps {
   onStartRepair: () => void;
   onFinishRepair: () => void;
 }
-
-const dateFormat = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
-  timeZone: APP_TIMEZONE,
-});
 
 export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: CarRowProps) {
   return (
@@ -41,7 +35,7 @@ export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: 
           одометр {car.odometerKm.toLocaleString('ru-RU')} км
           {car.inRepair && car.repairSince && (
             <>
-              {' · '}в ремонте с {dateFormat.format(new Date(car.repairSince))}
+              {' · '}в ремонте с {formatDay(new Date(car.repairSince))}
               {car.repairNote && `, ${car.repairNote}`}
             </>
           )}

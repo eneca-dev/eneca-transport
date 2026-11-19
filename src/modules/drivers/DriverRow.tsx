@@ -3,7 +3,7 @@
 import { Send } from 'lucide-react';
 
 import { BADGE, BADGE_DOT, BUTTON_SECONDARY } from '@/components/controls';
-import { APP_TIMEZONE } from '@/config/app';
+import { formatDay, formatMoment } from '@/lib/datetime';
 
 import type { Driver, DriverUnavailability } from './queries';
 
@@ -16,20 +16,6 @@ interface DriverRowProps {
   onEditPeriod: (period: DriverUnavailability) => void;
 }
 
-const dateFormat = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
-  timeZone: APP_TIMEZONE,
-});
-
-const timeFormat = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  timeZone: APP_TIMEZONE,
-});
-
 const REASON_LABEL: Record<DriverUnavailability['reason'], string> = {
   sick: 'болезнь',
   vacation: 'отпуск',
@@ -38,8 +24,8 @@ const REASON_LABEL: Record<DriverUnavailability['reason'], string> = {
 
 /** «04.11 – 06.11, болезнь» — так период выглядит в требованиях к Э9. */
 function periodLabel(period: DriverUnavailability): string {
-  const since = dateFormat.format(new Date(period.since));
-  const until = dateFormat.format(new Date(period.until));
+  const since = formatDay(new Date(period.since));
+  const until = formatDay(new Date(period.until));
   const range = since === until ? since : `${since} – ${until}`;
   return `${range}, ${REASON_LABEL[period.reason]}`;
 }
@@ -138,7 +124,7 @@ export function DriverRow({
             {driver.activeCode.code}
           </span>
           <span className="text-fg-soft">
-            действует до {timeFormat.format(new Date(driver.activeCode.expiresAt))}
+            действует до {formatMoment(new Date(driver.activeCode.expiresAt))}
           </span>
         </p>
       )}

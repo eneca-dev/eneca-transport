@@ -27,6 +27,20 @@ export const ENTRA_CLIENT_ID = process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID ?? '';
  */
 export const APP_ID_URI = `api://${APP_DOMAIN}/botid-${ENTRA_CLIENT_ID}`;
 
+/**
+ * Ссылка на поездку внутри Teams — для кнопки «Открыть» в карточках бота.
+ *
+ * Открывается не браузер, а вкладка приложения: `entityId` совпадает с тем,
+ * что объявлен в манифесте (`trips`), а номер поездки передаётся в `context`
+ * и читается вкладкой из `app.getContext().page.subPageId`.
+ */
+export function tripDeepLink(tripId: number): string {
+  const context = encodeURIComponent(JSON.stringify({ subEntityId: `trip-${tripId}` }));
+  return (
+    `https://teams.microsoft.com/l/entity/${ENTRA_CLIENT_ID}/trips` +
+    `?context=${context}`
+  );
+}
 /** Буфер на подготовку автомобиля между поездками. Дублируется в fn_booking_buffer(). */
 export const BOOKING_BUFFER_MINUTES = 10;
 

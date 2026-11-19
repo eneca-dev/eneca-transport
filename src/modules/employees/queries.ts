@@ -59,3 +59,81 @@ export async function findEmployeeByOid(entraOid: string): Promise<Employee | nu
   }
   return data ? toEmployee(data) : null;
 }
+
+/** Короткая запись сотрудника для выбора участников в Э2. */
+export interface EmployeeOption {
+  id: string;
+  displayName: string;
+  department: string | null;
+  jobTitle: string | null;
+}
+
+interface OptionRow {
+  id: string;
+  display_name: string;
+  department: string | null;
+  job_title: string | null;
+}
+
+/**
+ * Поиск сотрудников по имени для выбора участников.
+ *
+ * Список целиком не отдаётся: в справочнике больше девятисот человек. Поиск
+ * идёт по подстроке без учёта регистра, результат ограничен — выбирают из
+ * нескольких совпадений, а не листают справочник.
+ */
+export async function searchEmployees(query: string, limit = 10): Promise<EmployeeOption[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    return [];
+  }
+
+  // Процент и подчёркивание в ilike — подстановочные знаки, их надо обезвредить,
+  // иначе поиск по «%» вернёт весь справочник.
+  const pattern = `%${trimmed.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%`;
+
+  const { data, error } = await getDb()
+    .from('employees')
+    .select('id, display_name, department, job_title')
+    .eq('is_active', true)
+    .ilike('display_name', pattern)
+    .order('display_name')
+    .limit(limit)
+    .returns<OptionRow[]>();
+
+  if (error) {
+    throw new Error(`Не удалось найти сотрудников: ${error.message}`);
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    displayName: row.display_name,
+    department: row.department,
+    jobTitle: row.job_title,
+  }));
+}
+
+/** Сотрудники по списку идентификаторов — для показа уже выбранных участников. */
+export async function listEmployeesByIds(ids: string[]): Promise<EmployeeOption[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await getDb()
+    .from('employees')
+    .select('id, display_name, department, job_title')
+    .in('id', ids)
+    .order('display_name')
+    .returns<OptionRow[]>();
+
+  if (error) {
+    throw new Error(`Не удалось прочитать сотрудников: ${error.message}`);
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    displayName: row.display_name,
+    department: row.department,
+    jobTitle: row.job_title,
+  }));
+}

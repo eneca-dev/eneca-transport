@@ -60,7 +60,12 @@ export function AppShell({ children }: AppShellProps) {
                 читается по жирному тексту и полосе, а не по цвету фона. */}
             <nav className="-mb-px flex">
               {items.map(({ href, label, icon: Icon }) => {
-                const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
+                // Новая поездка и карточка поездки живут под /trips, но по сути
+                // это раздел «Мои поездки» — закладка остаётся подсвеченной.
+                const active =
+                  href === '/'
+                    ? pathname === '/' || pathname.startsWith('/trips')
+                    : pathname.startsWith(href);
                 return (
                   <Link
                     key={href}
