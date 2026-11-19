@@ -1,8 +1,6 @@
 'use client';
 
-import { CircleCheck, Wrench } from 'lucide-react';
-
-import { BUTTON_SECONDARY } from '@/components/controls';
+import { BADGE, BADGE_DOT, BUTTON_SECONDARY } from '@/components/controls';
 import { APP_TIMEZONE } from '@/config/app';
 
 import type { Car } from './queries';
@@ -21,8 +19,6 @@ const dateFormat = new Intl.DateTimeFormat('ru-RU', {
   timeZone: APP_TIMEZONE,
 });
 
-const BADGE = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium';
-
 export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: CarRowProps) {
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
@@ -32,11 +28,11 @@ export function CarRow({ car, pending, onEdit, onStartRepair, onFinishRepair }: 
           <span className="font-mono text-sm text-fg-soft">{car.plate}</span>
           {car.inRepair ? (
             <span className={`${BADGE} bg-warn text-warn-fg`}>
-              <Wrench className="size-3" aria-hidden />в ремонте
+              <span className={BADGE_DOT} aria-hidden />в ремонте
             </span>
           ) : (
             <span className={`${BADGE} bg-ok text-ok-fg`}>
-              <CircleCheck className="size-3" aria-hidden />
+              <span className={BADGE_DOT} aria-hidden />
               исправна
             </span>
           )}

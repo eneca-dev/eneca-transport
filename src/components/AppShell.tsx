@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Car, Route } from 'lucide-react';
+import { Car, Route, UserRound } from 'lucide-react';
 
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
@@ -21,6 +21,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: '/', label: 'Мои поездки', icon: Route },
   { href: '/cars', label: 'Машины', icon: Car, roles: ['aho'] },
+  { href: '/drivers', label: 'Водители', icon: UserRound, roles: ['aho'] },
 ];
 
 /** «Александра Бирило» → «АБ». Нужны первые буквы двух первых слов. */

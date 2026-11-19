@@ -23,3 +23,14 @@ export const BUTTON_GHOST =
 
 /** Карточка: белый лист на фоне страницы. */
 export const CARD = 'rounded-lg border border-line bg-surface';
+
+/**
+ * Значок состояния: цветная плашка с точкой. Цвет несёт смысл, поэтому рядом
+ * всегда стоит слово — иначе состояние не прочитать ни в высокой контрастности,
+ * ни тому, кто не различает цвета.
+ */
+export const BADGE =
+  'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium';
+
+/** Точка внутри значка. Берёт цвет текста плашки. */
+export const BADGE_DOT = 'size-2 shrink-0 rounded-full bg-current';

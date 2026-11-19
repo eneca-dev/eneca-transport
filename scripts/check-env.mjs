@@ -86,6 +86,13 @@ const vars = [
     check: (v) => (v.length >= 24 ? null : 'от 24 символов'),
   },
   {
+    name: 'SUPABASE_ACCESS_TOKEN',
+    secret: true,
+    // Нужен только скрипту миграций. Приложение без него работает.
+    optional: true,
+    check: (v) => (v.startsWith('sbp_') ? null : 'ожидается sbp_…'),
+  },
+  {
     name: 'TELEGRAM_WEBHOOK_SECRET',
     secret: true,
     check: (v) =>

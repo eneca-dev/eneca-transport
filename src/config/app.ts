@@ -2,6 +2,15 @@
 
 export const APP_NAME = 'ЭНЭКА.Командировки';
 
+/**
+ * Бот водителей в Telegram (@eneca_trips_bot, создан 13.11). Ссылку АХО даёт
+ * водителю при подключении: написать боту первым должен он, иначе Telegram
+ * не пропустит ни одного сообщения о поездках.
+ */
+export const TELEGRAM_BOT_USERNAME = 'eneca_trips_bot';
+
+export const TELEGRAM_BOT_LINK = `https://t.me/${TELEGRAM_BOT_USERNAME}`;
+
 /** Часовой пояс, в котором пользователи видят все даты и время. */
 export const APP_TIMEZONE = 'Europe/Minsk';
 
