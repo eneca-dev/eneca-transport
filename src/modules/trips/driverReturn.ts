@@ -42,11 +42,13 @@ export interface DriverTripRow {
   condition_ok: boolean | null;
   car_id: string | null;
   cars: { plate: string; model: string } | null;
+  employees: { display_name: string } | null;
 }
 
 const SELECT =
   'id, route, starts_at, ends_at, status, driver_confirmation, odometer_start_km, ' +
-  'odometer_end_km, condition_ok, car_id, cars(plate, model)';
+  'odometer_end_km, condition_ok, car_id, cars(plate, model), ' +
+  'employees!trips_author_id_fkey(display_name)';
 
 export type ReturnStep = 'odometer' | 'condition' | 'note' | 'done';
 
@@ -54,7 +56,9 @@ export type ReturnStep = 'odometer' | 'condition' | 'note' | 'done';
 export interface BotReply {
   text: string;
   buttons?: InlineButton[];
-  /** Показать постоянную кнопку «Мои поездки» под полем ввода. */
+  /** Кнопки сеткой: сетка календаря водителя. */
+  rows?: InlineButton[][];
+  /** Показать постоянные кнопки под полем ввода. */
   withKeyboard?: boolean;
 }
 
@@ -112,7 +116,12 @@ function prompt(trip: DriverTripRow, step: ReturnStep): BotReply {
   switch (step) {
     case 'odometer':
       return {
-        text: messageT5Odometer(trip.id, trip.route, trip.odometer_start_km ?? 0),
+        text: messageT5Odometer(
+          trip.id,
+          trip.route,
+          trip.odometer_start_km ?? 0,
+          trip.employees?.display_name ?? null,
+        ),
       };
     case 'condition':
       return {

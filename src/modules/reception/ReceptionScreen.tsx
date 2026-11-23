@@ -14,11 +14,11 @@ import type { ReactNode } from 'react';
 import type { ReceptionDay, ReceptionTrip } from './queries';
 
 /**
- * Э4 «Рецепция: сегодня».
+ * Э4 «Рецепция: сегодня» — три блока: просроченные, выдача, возврат.
  *
- * Приёма ключей здесь пока нет: он требует показания одометра, а его вводит
- * автор или водитель — это следующий инкремент. Поездки в пути и просроченные
- * уже видны, чтобы рецепция понимала, чего ждать.
+ * Просроченные стоят первыми и не рисуются вовсе, когда их нет. «Выдать»
+ * недоступно без готовых документов, «Принять» — без показания одометра:
+ * оба запрета идут из инвариантов требований, а не из удобства экрана.
  */
 
 const weekday = new Intl.DateTimeFormat('ru-RU', {
@@ -33,9 +33,15 @@ interface SectionProps {
   empty: string;
   children: ReactNode;
   count: number;
+  /** Пустой блок не рисовать вовсе: так делают просроченные. */
+  hideWhenEmpty?: boolean;
 }
 
-function Section({ title, empty, count, children }: SectionProps) {
+function Section({ title, empty, count, children, hideWhenEmpty }: SectionProps) {
+  if (count === 0 && hideWhenEmpty) {
+    return null;
+  }
+
   return (
     <section className="mt-6 first:mt-0">
       <h2 className="mb-2 text-xs font-semibold tracking-wide text-fg-soft uppercase">{title}</h2>
@@ -105,6 +111,52 @@ export function ReceptionScreen() {
 
       {day && (
         <>
+          {/* Просроченные требуют действий, поэтому идут первыми. Когда их
+              нет, блок не показывается вовсе: пустая строка наверху экрана
+              отодвигает вниз то, с чем рецепция работает каждый день. */}
+          <Section
+            title="Просроченные"
+            empty=""
+            count={day.overdue.length}
+            hideWhenEmpty
+          >
+            {day.overdue.map((trip) => (
+              <li key={trip.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p>
+                    <span className="font-mono text-sm text-fg-soft">#{trip.id}</span>{' '}
+                    <span className="font-medium">{trip.carLabel ?? '—'}</span>{' '}
+                    <span className="text-sm text-fg-soft">{people(trip)}</span>
+                  </p>
+                  <p className="mt-0.5 text-sm text-bad-fg">
+                    Возврат был {formatMoment(new Date(trip.endsAt))} · ключи не сданы
+                    {trip.odometerEndKm !== null && (
+                      <span className="text-fg-soft">
+                        {' · '}одометр {trip.odometerEndKm.toLocaleString('ru-RU')} км
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => run((token) => acceptTripKeys(token, trip.id))}
+                    disabled={pending || trip.odometerEndKm === null}
+                    className={BUTTON_PRIMARY_SM}
+                    title={
+                      trip.odometerEndKm === null ? 'Сначала нужно показание одометра' : undefined
+                    }
+                  >
+                    Принять
+                  </button>
+                  <Link href={`/trips/${trip.id}`} className={BUTTON_SECONDARY}>
+                    Открыть
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </Section>
+
           <Section title="Выдача" empty="На сегодня выдач нет." count={day.issues.length}>
             {day.issues.map((trip) => (
               <li key={trip.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
@@ -167,48 +219,6 @@ export function ReceptionScreen() {
                 <div className="flex flex-wrap gap-2">
                   {/* Принять можно только после показания одометра: без него
                       поездку закрывать нельзя. */}
-                  <button
-                    type="button"
-                    onClick={() => run((token) => acceptTripKeys(token, trip.id))}
-                    disabled={pending || trip.odometerEndKm === null}
-                    className={BUTTON_PRIMARY_SM}
-                    title={
-                      trip.odometerEndKm === null ? 'Сначала нужно показание одометра' : undefined
-                    }
-                  >
-                    Принять
-                  </button>
-                  <Link href={`/trips/${trip.id}`} className={BUTTON_SECONDARY}>
-                    Открыть
-                  </Link>
-                </div>
-              </li>
-            ))}
-          </Section>
-
-          <Section
-            title="Просроченные"
-            empty="Просроченных нет — все ключи сданы в срок."
-            count={day.overdue.length}
-          >
-            {day.overdue.map((trip) => (
-              <li key={trip.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p>
-                    <span className="font-mono text-sm text-fg-soft">#{trip.id}</span>{' '}
-                    <span className="font-medium">{trip.carLabel ?? '—'}</span>{' '}
-                    <span className="text-sm text-fg-soft">{people(trip)}</span>
-                  </p>
-                  <p className="mt-0.5 text-sm text-bad-fg">
-                    Возврат был {formatMoment(new Date(trip.endsAt))} · ключи не сданы
-                    {trip.odometerEndKm !== null && (
-                      <span className="text-fg-soft">
-                        {' · '}одометр {trip.odometerEndKm.toLocaleString('ru-RU')} км
-                      </span>
-                    )}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => run((token) => acceptTripKeys(token, trip.id))}

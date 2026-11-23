@@ -9,24 +9,41 @@ import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatDayRange } from '@/lib/datetime';
 
 import { loadMyTrips } from './actions';
-import { STATUS_LABEL, STATUS_TONE, TONE_CLASS, whatNext } from './tripStatus';
+import { TONE_CLASS, tripState } from './tripStatus';
 
 import type { TripListItem } from './queries';
+import type { Viewer } from './tripStatus';
 
 /** Э1 «Мои поездки»: свои заявки и те, где сотрудник участник. */
 
-function carLabel(trip: TripListItem): string {
-  const car = [trip.carModel, trip.carPlate].filter(Boolean).join(' ');
-  const driver = trip.needsDriver
-    ? trip.driverName
-      ? `вод. ${trip.driverName}`
-      : 'водитель не назначен'
-    : 'без водителя';
-  return car ? `${car}, ${driver}` : driver;
+/**
+ * Машина, водитель и роль смотрящего одной строкой.
+ *
+ * Отсутствие водителя — это не данные, а их отсутствие, поэтому пишется коротко
+ * и серым, а не отдельным полем наравне с машиной.
+ */
+function details(trip: TripListItem): string {
+  const parts: string[] = [];
+
+  if (trip.carModel || trip.carPlate) {
+    parts.push([trip.carModel, trip.carPlate].filter(Boolean).join(' '));
+  }
+
+  if (trip.needsDriver) {
+    parts.push(trip.driverName ? `вод. ${trip.driverName}` : 'водитель не назначен');
+  } else {
+    parts.push('без водителя');
+  }
+
+  if (!trip.isAuthor) {
+    parts.push(`я участник, автор — ${trip.authorName}`);
+  }
+
+  return parts.join(' · ');
 }
 
 export function MyTripsScreen() {
-  const { getToken } = useTeamsAuth();
+  const { employee, getToken } = useTeamsAuth();
 
   const [trips, setTrips] = useState<TripListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +66,12 @@ export function MyTripsScreen() {
   }, [getToken]);
 
   useEffect(load, [load]);
+
+  const roles: Omit<Viewer, 'isAuthor'> = {
+    isAho: employee.roles.includes('aho'),
+    isReception: employee.roles.includes('reception'),
+    isFinance: employee.roles.includes('finance'),
+  };
 
   return (
     <section>
@@ -76,38 +99,46 @@ export function MyTripsScreen() {
 
       {trips && trips.length > 0 && (
         <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
-          {trips.map((trip) => (
-            <li key={trip.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-sm text-fg-soft">#{trip.id}</span>
-                  <span className="text-sm">
-                    {formatDayRange(new Date(trip.startsAt), new Date(trip.endsAt))}
-                  </span>
-                  <span className="font-medium">{trip.route}</span>
-                  <span className={`${BADGE} ${TONE_CLASS[STATUS_TONE[trip.status]]}`}>
-                    <span className={BADGE_DOT} aria-hidden />
-                    {STATUS_LABEL[trip.status]}
-                    {trip.status === 'closed' && trip.distanceKm !== null && (
-                      <>, {trip.distanceKm.toLocaleString('ru-RU')} км</>
-                    )}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-sm text-fg-soft">
-                  {carLabel(trip)}
-                  {!trip.isAuthor && <> · я участник (автор — {trip.authorName})</>}
-                </p>
-                {/* Статуса мало: он не говорит, ждут ли чего-то от человека. */}
-                {whatNext(trip) && (
-                  <p className="mt-0.5 text-sm text-brand-text">{whatNext(trip)}</p>
-                )}
-              </div>
+          {trips.map((trip) => {
+            const state = tripState(trip, { ...roles, isAuthor: trip.isAuthor });
 
-              <Link href={`/trips/${trip.id}`} className={BUTTON_SECONDARY}>
-                Открыть
-              </Link>
-            </li>
-          ))}
+            return (
+              <li key={trip.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  {/* Первой строкой то, по чему человек узнаёт поездку: когда и
+                      куда. Номер ушёл во вторую строку — он нужен для ссылки,
+                      а не для чтения. */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-sm whitespace-nowrap">
+                      {formatDayRange(new Date(trip.startsAt), new Date(trip.endsAt))}
+                    </span>
+                    <span className="min-w-0 font-medium">{trip.route}</span>
+                    <span className={`${BADGE} ${TONE_CLASS[state.tone]}`}>
+                      <span className={BADGE_DOT} aria-hidden />
+                      {state.label}
+                    </span>
+                  </div>
+
+                  <p className="mt-0.5 text-sm text-fg-soft">
+                    {details(trip)}
+                    <span className="font-mono"> · #{trip.id}</span>
+                  </p>
+
+                  {/* Третья строка появляется только когда ждут именно этого
+                      человека. Если ждут других — состояния достаточно. */}
+                  {state.waitingFor && (
+                    <p className="mt-0.5 text-sm font-medium text-brand-text">
+                      От вас: {state.waitingFor}
+                    </p>
+                  )}
+                </div>
+
+                <Link href={`/trips/${trip.id}`} className={BUTTON_SECONDARY}>
+                  Открыть
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

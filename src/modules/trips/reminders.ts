@@ -14,7 +14,7 @@ import { formatMoment } from '@/lib/datetime';
 import { listEmployeesByRole } from '@/modules/employees/queries';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
-import { minskDayBounds, minskHour, toMinskDate } from './booking';
+import { isMinskWeekend, minskDayBounds, minskHour, toMinskDate } from './booking';
 
 import type { TripCardData } from '@/lib/bots/cards';
 
@@ -123,7 +123,13 @@ async function remindDayBefore(now: Date): Promise<number> {
         await deliverOnce(entry, () =>
           sendTelegramMessage(
             chatId,
-            messageT3(trip.id, trip.route, departure, carLabel),
+            messageT3(
+              trip.id,
+              trip.route,
+              departure,
+              carLabel,
+              trip.employees?.display_name ?? null,
+            ),
             { withKeyboard: true },
           ),
         );
@@ -204,11 +210,45 @@ async function remindReception(now: Date): Promise<number> {
 }
 
 /**
+ * Оставить только те поездки, по которым К15 ещё ни разу не уходила.
+ *
+ * Ключ защиты от повтора занимается до отправки, поэтому строка в
+ * `notifications` есть у каждой попытки — именно это и нужно: «напоминали
+ * хоть раз».
+ */
+async function neverRemindedYet(trips: TripRow[]): Promise<TripRow[]> {
+  const { data, error } = await getDb()
+    .from('notifications')
+    .select('trip_id')
+    .eq('template', 'K15')
+    .in(
+      'trip_id',
+      trips.map((trip) => trip.id),
+    )
+    .returns<{ trip_id: number }[]>();
+
+  if (error) {
+    // Проверить не удалось — лучше напомнить лишний раз, чем промолчать о
+    // машине, которая не вернулась.
+    console.error('Не удалось проверить прежние К15', error);
+    return trips;
+  }
+
+  const reminded = new Set((data ?? []).map((row) => row.trip_id));
+  return trips.filter((trip) => !reminded.has(trip.id));
+}
+
+/**
  * К15 автору и АХО — ключи не сданы.
  *
  * Берутся поездки, у которых плановый возврат был раньше начала сегодняшних
  * минских суток: «не сданы до утра» из требований. Напоминаем раз в день,
  * поэтому в ключе дата.
+ *
+ * В выходной напоминаем только в первый раз. Ключи принимает рецепция, в
+ * субботу она закрыта, и повтор просит сделать невозможное — после двух таких
+ * К15 перестают читать вообще. Первое напоминание уходит в любой день: «машина
+ * не вернулась» — это новость, а не повтор.
  */
 async function remindOverdue(now: Date): Promise<number> {
   if (minskHour(now) < OVERDUE_REMINDER_HOUR) {
@@ -229,7 +269,13 @@ async function remindOverdue(now: Date): Promise<number> {
     throw new Error(`Не удалось найти несданные ключи: ${error.message}`);
   }
 
-  const trips = data ?? [];
+  const found = data ?? [];
+  const trips = found.length > 0 && isMinskWeekend(now) ? await neverRemindedYet(found) : found;
+
+  if (trips.length === 0) {
+    return 0;
+  }
+
   const day = toMinskDate(now);
   const aho = await listEmployeesByRole('aho');
 

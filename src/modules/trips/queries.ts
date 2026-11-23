@@ -32,6 +32,8 @@ export interface TripListItem {
   docsReadyAt: string | null;
   docsRecheckRequired: boolean;
   keysIssuedAt: string | null;
+  /** Нужен состоянию поездки: показание передано, но ключи не приняты. */
+  odometerEndKm: number | null;
   /** Человек в этой поездке автор или только участник. */
   isAuthor: boolean;
   authorName: string;
@@ -44,7 +46,6 @@ export interface TripCard extends TripListItem {
   participants: TripParticipant[];
   keysReturnedAt: string | null;
   odometerStartKm: number | null;
-  odometerEndKm: number | null;
   conditionOk: boolean | null;
   returnNote: string | null;
   cancelledAt: string | null;
@@ -114,6 +115,7 @@ function toListItem(row: TripRow, viewerId: string): TripListItem {
     docsReadyAt: row.docs_ready_at,
     docsRecheckRequired: row.docs_recheck_required,
     keysIssuedAt: row.keys_issued_at,
+    odometerEndKm: row.odometer_end_km,
     isAuthor: row.author_id === viewerId,
     authorName: row.employees?.display_name ?? '—',
   };
@@ -247,7 +249,6 @@ export async function getTripCard(tripId: number, viewerId: string): Promise<Tri
     })),
     keysReturnedAt: trip.keys_returned_at,
     odometerStartKm: trip.odometer_start_km,
-    odometerEndKm: trip.odometer_end_km,
     conditionOk: trip.condition_ok,
     returnNote: trip.return_note,
     cancelledAt: trip.cancelled_at,

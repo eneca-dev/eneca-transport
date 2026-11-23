@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { DRIVER_CONFIRMATION_MINUTES } from '@/config/app';
+import { DRIVER_CONFIRMATION_MINUTES, URGENT_DEPARTURE_HOURS } from '@/config/app';
 import { getDb } from '@/config/supabase';
 
+import { isMinskWorkingTime } from './booking';
 import { notifyAuthorNoDriver, notifyDriverTimeout } from './notifyDriver';
 import { notifyDriverReturnDue } from './notifyDriverReturn';
 import { notifyReturnDue } from './notifyReturnDue';
@@ -51,22 +52,41 @@ interface TripIdRow {
  *
  * Отсчёт идёт от `driver_assigned_at` — момента отправки Т1, как в требованиях,
  * а не от создания заявки: при замене водителя отсчёт начинается заново.
+ *
+ * Вне рабочего времени молчание не объявляется. Иначе заявка, заведённая в
+ * пятницу в 22:00, в 22:15 даёт водителю Т2 «подтверждение не получено», АХО —
+ * К14 «водитель не подтвердил», и вся ветка замены срабатывает на ровном
+ * месте: водитель просто спал. Срок при этом не отменяется, он лишь не
+ * истекает, пока никто не работает.
+ *
+ * Исключение — близкий выезд: о нём АХО должна узнать сразу, в какой бы час
+ * это ни случилось. Поэтому подтверждение переводится в `timeout` и ночью,
+ * если выезжать меньше чем через `URGENT_DEPARTURE_HOURS` часов.
+ *
+ * Переводится именно состояние, а не только отправка сообщений: пока стоит
+ * `pending`, водитель может нажать «Подтверждаю» и ночью, и это сработает.
  */
 async function expireDriverConfirmations(): Promise<number> {
   const db = getDb();
-  const deadline = new Date(Date.now() - DRIVER_CONFIRMATION_MINUTES * 60_000).toISOString();
+  const now = new Date();
+  const deadline = new Date(now.getTime() - DRIVER_CONFIRMATION_MINUTES * 60_000).toISOString();
 
   // Статус меняется тем же запросом, которым ищется: между выборкой и
   // обновлением водитель мог успеть нажать «Подтверждаю», и перезаписывать его
   // ответ нельзя.
-  const { data, error } = await db
+  let query = db
     .from('trips')
-    .update({ driver_confirmation: 'timeout', updated_at: new Date().toISOString() })
+    .update({ driver_confirmation: 'timeout', updated_at: now.toISOString() })
     .eq('driver_confirmation', 'pending')
     .lte('driver_assigned_at', deadline)
-    .in('status', ['booked', 'docs_ready', 'in_trip'])
-    .select('id')
-    .returns<TripIdRow[]>();
+    .in('status', ['booked', 'docs_ready', 'in_trip']);
+
+  if (!isMinskWorkingTime(now)) {
+    const urgent = new Date(now.getTime() + URGENT_DEPARTURE_HOURS * 60 * 60_000);
+    query = query.lte('starts_at', urgent.toISOString());
+  }
+
+  const { data, error } = await query.select('id').returns<TripIdRow[]>();
 
   if (error) {
     throw new Error(`Не удалось отметить неподтверждённые назначения: ${error.message}`);

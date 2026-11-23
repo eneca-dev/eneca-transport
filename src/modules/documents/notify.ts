@@ -4,6 +4,7 @@ import { cardK3, cardK4 } from '@/lib/bots/cards';
 import { sendCard } from '@/lib/bots/teamsSender';
 import { getDb } from '@/config/supabase';
 import { listEmployeesByRole } from '@/modules/employees/queries';
+import { DOCUMENT_AFFECTING, describeChange } from '@/modules/trips/changeLog';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import type { TripCardData } from '@/lib/bots/cards';
@@ -92,7 +93,8 @@ export async function notifyFinanceNewRequest(tripId: number, attempt = 'new'): 
   }
 
   const recipients = await listEmployeesByRole('finance');
-  const card = cardK3(loaded.data, loaded.trip.docs_recheck_required);
+  const changes = loaded.trip.docs_recheck_required ? await loadChanges(tripId) : [];
+  const card = cardK3(loaded.data, loaded.trip.docs_recheck_required, changes);
 
   if (recipients.length === 0) {
     await skipDelivery(
@@ -124,6 +126,50 @@ export async function notifyFinanceNewRequest(tripId: number, attempt = 'new'): 
       ),
     ),
   );
+}
+
+interface EventRow {
+  kind: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+/**
+ * Что изменилось после последней отметки «Документы готовы».
+ *
+ * Тот же перечень, что в Э5, и собирается он тем же описателем: иначе карточка
+ * и экран рассказывали бы об одном событии по-разному.
+ */
+async function loadChanges(tripId: number): Promise<string[]> {
+  const db = getDb();
+
+  const { data: trip } = await db
+    .from('trips')
+    .select('docs_ready_at')
+    .eq('id', tripId)
+    .maybeSingle<{ docs_ready_at: string | null }>();
+
+  const { data, error } = await db
+    .from('trip_events')
+    .select('kind, payload, created_at')
+    .eq('trip_id', tripId)
+    .order('created_at')
+    .returns<EventRow[]>();
+
+  if (error) {
+    console.error(`Поездка #${tripId}: не удалось прочитать изменения`, error);
+    return [];
+  }
+
+  const since = trip?.docs_ready_at ?? null;
+
+  return (data ?? [])
+    .filter((event) => since === null || event.created_at > since)
+    .filter((event) =>
+      DOCUMENT_AFFECTING.includes(event.kind as (typeof DOCUMENT_AFFECTING)[number]),
+    )
+    .map((event) => describeChange(event))
+    .filter((line): line is string => line !== null);
 }
 
 /** К4: сообщить автору, что документы готовы. */

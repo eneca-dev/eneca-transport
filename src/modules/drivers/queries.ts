@@ -143,3 +143,26 @@ export async function listDrivers(): Promise<Driver[]> {
     activeCode: codeByDriver.get(driver.id) ?? null,
   }));
 }
+
+/**
+ * Водитель, привязанный к этому чату Telegram.
+ *
+ * Лежит здесь, а не рядом с привязкой: по чату водителя ищут и привязка, и
+ * диалог возврата, и календарь. Если бы функция осталась в одном из них,
+ * остальные ссылались бы друг на друга по кругу.
+ */
+export async function driverByChat(
+  chatId: number,
+): Promise<{ id: string; full_name: string } | null> {
+  const { data, error } = await getDb()
+    .from('drivers')
+    .select('id, full_name')
+    .eq('telegram_chat_id', chatId)
+    .maybeSingle<{ id: string; full_name: string }>();
+
+  if (error) {
+    console.error('Не удалось найти водителя по чату', error);
+    return null;
+  }
+  return data;
+}

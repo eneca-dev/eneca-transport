@@ -128,7 +128,7 @@ export function cardK1(trip: TripCardData): unknown {
  * отмечает готовность, и заставлять его для этого открывать вкладку —
  * лишний шаг на каждой заявке.
  */
-export function cardK3(trip: TripCardData, recheck: boolean): unknown {
+export function cardK3(trip: TripCardData, recheck: boolean, changes: string[] = []): unknown {
   return buildCard({
     title: recheck
       ? `Поездка #${trip.id} изменилась — нужна повторная проверка`
@@ -144,8 +144,13 @@ export function cardK3(trip: TripCardData, recheck: boolean): unknown {
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
     ],
+    // Перечень изменений в карточке, а не только во вкладке: финотдел должен
+    // понимать, что перепроверять, не открывая приложение.
     note: recheck
-      ? 'Прежний комплект документов неактуален — проверьте и подтвердите готовность заново.'
+      ? [
+          'Прежний комплект документов неактуален.',
+          ...(changes.length > 0 ? ['', 'Изменилось:', ...changes.map((line) => `• ${line}`)] : []),
+        ].join('\n')
       : undefined,
     actions: [
       {
@@ -577,11 +582,12 @@ export function cardDone(title: string, facts: CardFact[], result: string): unkn
 }
 
 /**
- * К14: Дарье (АХО) — водитель отказался или не подтвердил за 15 минут.
+ * К14: АХО — водитель отказался или не подтвердил за 15 минут.
  *
- * Кнопки «Назначить водителя» пока нет: замена водителя — это И7. Бронь
- * автомобиля при этом сохраняется, об этом сказано прямо в карточке, чтобы АХО
- * не бросилась бронировать заново.
+ * Кнопка открывает карточку поездки, а не выбирает водителя на месте: список
+ * свободных водителей в адаптивной карточке нечитаем на телефоне. Бронь
+ * автомобиля сохраняется, об этом сказано прямо в карточке, чтобы АХО не
+ * бросилась бронировать заново.
  */
 export function cardK14(
   trip: TripCardData,
@@ -601,7 +607,7 @@ export function cardK14(
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
     ],
     note: 'Бронь автомобиля сохранена — нужно назначить другого водителя.',
-    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+    actions: [{ kind: 'open', title: 'Назначить водителя', tripId: trip.id }],
   });
 }
 

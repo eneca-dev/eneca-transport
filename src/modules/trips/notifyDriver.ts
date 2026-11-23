@@ -6,6 +6,7 @@ import { answerCallback, closeTelegramButtons, sendTelegramMessage } from '@/lib
 import { acceptCondition, acceptNote, askReturnStep } from './driverReturn';
 import { messageT1, messageT1Answered, messageT2 } from '@/lib/bots/telegramMessages';
 import { getDb } from '@/config/supabase';
+import { handleCalendarCallback, isCalendarCallback } from '@/modules/drivers/calendar';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import { sendFailureReason } from './notify';
@@ -58,7 +59,13 @@ async function loadTrip(tripId: number): Promise<TripRow | null> {
   return data;
 }
 
-async function loadPassengers(tripId: number, authorName: string): Promise<string[]> {
+/**
+ * Участники без автора.
+ *
+ * Автор идёт отдельной строкой «Ответственный»: водителю важно знать не просто
+ * список фамилий, а к кому обращаться, если на месте что-то не так.
+ */
+async function loadPassengers(tripId: number): Promise<string[]> {
   const { data, error } = await getDb()
     .from('trip_participants')
     .select('employees(display_name)')
@@ -67,10 +74,10 @@ async function loadPassengers(tripId: number, authorName: string): Promise<strin
 
   if (error) {
     console.error(`Поездка #${tripId}: не удалось прочитать пассажиров`, error);
-    return [authorName];
+    return [];
   }
 
-  return [authorName, ...(data ?? []).map((row) => row.employees?.display_name ?? '—')];
+  return (data ?? []).map((row) => row.employees?.display_name ?? '—');
 }
 
 function toAssignment(trip: TripRow, passengers: string[]): AssignmentMessage {
@@ -80,7 +87,10 @@ function toAssignment(trip: TripRow, passengers: string[]): AssignmentMessage {
     endsAt: trip.ends_at,
     route: trip.route,
     carLabel: trip.cars ? `${trip.cars.model} ${trip.cars.plate}` : null,
+    responsible: trip.employees?.display_name ?? '—',
     passengers,
+    contract: trip.contract,
+    purpose: trip.purpose,
   };
 }
 
@@ -131,7 +141,7 @@ export async function notifyDriverAssigned(tripId: number): Promise<void> {
     }
 
     const chatId = driver.telegram_chat_id;
-    const passengers = await loadPassengers(tripId, trip.employees?.display_name ?? '—');
+    const passengers = await loadPassengers(tripId);
     const assignment = toAssignment(trip, passengers);
 
     await deliverOnce(entry, () =>
@@ -322,6 +332,13 @@ export interface DriverCallback {
  * ответить за другого водителя нельзя.
  */
 export async function handleDriverCallback(callback: DriverCallback): Promise<void> {
+  // Календарь: листание месяцев и просмотр дня. Отдельной веткой, потому что
+  // он не про одну поездку и ничего в базе не меняет.
+  if (isCalendarCallback(callback.data)) {
+    await handleCalendarCallback(callback);
+    return;
+  }
+
   // Кнопки диалога возврата: состояние машины, пропуск примечания, начало.
   if (['cond:ok', 'cond:remark', 'note:skip', 'return:start'].includes(callback.data)) {
     await handleReturnCallback(callback);
@@ -392,7 +409,7 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
     await notifyAhoDriverMissing(trip, driver.full_name, 'declined');
   }
 
-  const passengers = await loadPassengers(tripId, trip.employees?.display_name ?? '—');
+  const passengers = await loadPassengers(tripId);
   const assignment = toAssignment(trip, passengers);
 
   try {
@@ -407,4 +424,49 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
     // повторное нажатие отсекается проверкой статуса выше.
     console.error(`Поездка #${tripId}: не удалось обновить сообщение водителя`, error);
   }
+}
+
+/**
+ * Т4 снятому водителю: на поездку назначили другого.
+ *
+ * Отдельно от К12, потому что водителю нужно не «что изменилось в заявке», а
+ * одно: ехать больше не надо.
+ */
+export async function notifyDriverUnassigned(
+  tripId: number,
+  driverId: string,
+  replacedBy: string,
+): Promise<void> {
+  const { data: driver, error } = await getDb()
+    .from('drivers')
+    .select('telegram_chat_id')
+    .eq('id', driverId)
+    .maybeSingle<{ telegram_chat_id: number | null }>();
+
+  const entry = {
+    template: 'T4',
+    channel: 'telegram' as const,
+    tripId,
+    recipient: { driverId },
+    dedupeKey: `T4:trip:${tripId}:unassigned:${Date.now()}`,
+  };
+
+  if (error || driver?.telegram_chat_id === null || driver === null) {
+    await skipDelivery(entry, 'У водителя не подключён Telegram');
+    return;
+  }
+
+  const chatId = driver.telegram_chat_id;
+
+  await deliverOnce(entry, () =>
+    sendTelegramMessage(
+      chatId,
+      [
+        `Поездка #${tripId}: вас сняли с поездки.`,
+        '',
+        `Поедет ${replacedBy}. Ничего делать не нужно.`,
+      ].join('\n'),
+      { withKeyboard: true },
+    ),
+  );
 }

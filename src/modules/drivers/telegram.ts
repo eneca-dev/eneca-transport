@@ -10,6 +10,9 @@ import {
   listDriverTrips,
 } from '@/modules/trips/driverReturn';
 
+import { currentMinskMonth, driverMonthReply } from './calendar';
+import { driverByChat } from './queries';
+
 import type { BotReply } from '@/modules/trips/driverReturn';
 
 /**
@@ -100,21 +103,6 @@ interface AttemptsRow {
 
 const CODE_PATTERN = new RegExp(`^\\d{${CODE_DIGITS}}$`);
 
-/** Водитель, привязанный к этому чату. */
-async function driverByChat(chatId: number): Promise<{ id: string; full_name: string } | null> {
-  const { data, error } = await getDb()
-    .from('drivers')
-    .select('id, full_name')
-    .eq('telegram_chat_id', chatId)
-    .maybeSingle<{ id: string; full_name: string }>();
-
-  if (error) {
-    console.error('Не удалось найти водителя по чату', error);
-    return null;
-  }
-  return data;
-}
-
 /**
  * Ответ бота на сообщение водителя. Отправку делает вебхук.
  *
@@ -130,6 +118,10 @@ export async function replyToDriver(sender: TelegramSender, text: string): Promi
   if (driver) {
     if (message === 'Мои поездки') {
       return listDriverTrips(driver.id);
+    }
+
+    if (message === 'Календарь') {
+      return driverMonthReply(driver.id, currentMinskMonth());
     }
 
     if (/^\d+$/.test(message)) {
@@ -154,7 +146,8 @@ export async function replyToDriver(sender: TelegramSender, text: string): Promi
       text: [
         `Вы подключены как ${driver.full_name}.`,
         '',
-        'Назначения придут сюда сами. Нажмите «Мои поездки», чтобы посмотреть, что за вами.',
+        'Назначения придут сюда сами. «Мои поездки» — что за вами сейчас, ' +
+          '«Календарь» — ваш график по месяцам.',
       ].join('\n'),
       withKeyboard: true,
     };

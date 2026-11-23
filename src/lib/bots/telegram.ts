@@ -43,20 +43,30 @@ async function callTelegram<T>(method: string, body: unknown): Promise<T> {
 }
 
 /**
- * Постоянная кнопка под полем ввода. Требование к боту водителя: «Мои поездки»
- * доступны в любой момент, а не только из последнего сообщения.
+ * Постоянные кнопки под полем ввода. Требование к боту водителя: «Мои поездки»
+ * доступны в любой момент, а не только из последнего сообщения. Рядом
+ * календарь: список отвечает «что у меня сейчас», календарь — «что у меня
+ * вообще».
  */
 const PERSISTENT_KEYBOARD = {
-  keyboard: [[{ text: 'Мои поездки' }]],
+  keyboard: [[{ text: 'Мои поездки' }, { text: 'Календарь' }]],
   resize_keyboard: true,
   is_persistent: true,
 };
 
 export interface SendOptions {
-  /** Кнопки под сообщением: ответ приходит как callback_query. */
+  /** Кнопки под сообщением одним рядом: ответ приходит как callback_query. */
   buttons?: InlineButton[];
-  /** Показать постоянную кнопку «Мои поездки» под полем ввода. */
+  /** Кнопки сеткой, ряд за рядом: календарь водителя. */
+  rows?: InlineButton[][];
+  /** Показать постоянные кнопки под полем ввода. */
   withKeyboard?: boolean;
+}
+
+function inlineKeyboard(rows: InlineButton[][]) {
+  return {
+    inline_keyboard: rows.map((row) => row.map((b) => ({ text: b.text, callback_data: b.data }))),
+  };
 }
 
 /** Отправить сообщение. Возвращает идентификатор — по нему правят кнопки. */
@@ -66,19 +76,47 @@ export async function sendTelegramMessage(
   options: SendOptions | InlineButton[] = {},
 ): Promise<number> {
   // Массив вторым аргументом — старая форма вызова: только кнопки.
-  const { buttons, withKeyboard } = Array.isArray(options) ? { buttons: options } : options;
+  const { buttons, rows, withKeyboard } = Array.isArray(options) ? { buttons: options } : options;
+  const grid = rows ?? (buttons ? [buttons] : null);
 
   const result = await callTelegram<{ message_id: number }>('sendMessage', {
     chat_id: chatId,
     text,
-    reply_markup: buttons
-      ? { inline_keyboard: [buttons.map((b) => ({ text: b.text, callback_data: b.data }))] }
-      : withKeyboard
-        ? PERSISTENT_KEYBOARD
-        : undefined,
+    reply_markup: grid ? inlineKeyboard(grid) : withKeyboard ? PERSISTENT_KEYBOARD : undefined,
   });
 
   return result.message_id;
+}
+
+/**
+ * Переписать сообщение вместе с кнопками: листание календаря водителя.
+ *
+ * Новое сообщение на каждое нажатие завалило бы переписку двенадцатью
+ * календарями, поэтому правится одно и то же.
+ *
+ * «Message is not modified» Telegram считает ошибкой: так он отвечает, когда
+ * водитель нажал кнопку месяца, который и так открыт. Для нас это не ошибка,
+ * а ничего не значащее нажатие.
+ */
+export async function editTelegramMessage(
+  chatId: number,
+  messageId: number,
+  text: string,
+  rows: InlineButton[][],
+): Promise<void> {
+  try {
+    await callTelegram('editMessageText', {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      reply_markup: inlineKeyboard(rows),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('message is not modified')) {
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

@@ -44,6 +44,46 @@ export function formatPeriod(from: Date, to: Date): string {
 }
 
 /**
+ * Названия месяца и дня для календаря водителя.
+ *
+ * Здесь на входе не момент, а календарная дата — «2026-11» или «2026-11-25».
+ * Она уже минская, переводить её некуда, поэтому разбирается как UTC-полночь:
+ * иначе 1 ноября превратилось бы в 31 октября.
+ */
+const monthParts = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: 'UTC',
+  month: 'long',
+  year: 'numeric',
+});
+
+const dayParts = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: 'UTC',
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+});
+
+function pick(
+  formatter: Intl.DateTimeFormat,
+  value: string,
+  type: Intl.DateTimeFormatPartTypes,
+): string {
+  return formatter.formatToParts(new Date(`${value}T00:00:00Z`)).find((p) => p.type === type)
+    ?.value ?? '';
+}
+
+/** «ноябрь 2026» из «2026-11». Русская локаль дописывает «г.» — она лишняя. */
+export function formatMonthLabel(month: string): string {
+  const first = `${month}-01`;
+  return `${pick(monthParts, first, 'month')} ${pick(monthParts, first, 'year')}`;
+}
+
+/** «25 ноября, среда» из «2026-11-25». */
+export function formatDateLabel(day: string): string {
+  return `${pick(dayParts, day, 'day')} ${pick(dayParts, day, 'month')}, ${pick(dayParts, day, 'weekday')}`;
+}
+
+/**
  * Диапазон дней: «05–06.11» для многодневного, «12.11» для однодневного.
  * Месяц не повторяется, если он один и тот же.
  */

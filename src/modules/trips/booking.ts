@@ -1,4 +1,9 @@
-import { APP_TIMEZONE, BOOKING_BUFFER_MINUTES } from '@/config/app';
+import {
+  APP_TIMEZONE,
+  BOOKING_BUFFER_MINUTES,
+  WORK_DAY_END_HOUR,
+  WORK_DAY_START_HOUR,
+} from '@/config/app';
 
 /**
  * Интервал брони и работа со временем поездки.
@@ -101,6 +106,27 @@ export function minskDayBounds(date: Date): { from: Date; to: Date } {
   }
 
   return { from, to: new Date(from.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+/**
+ * Выходной по минскому календарю.
+ *
+ * День берётся из минской даты и разбирается как UTC-полночь: так день недели
+ * не зависит от часового пояса машины, где крутится планировщик.
+ */
+export function isMinskWeekend(date: Date): boolean {
+  const weekday = new Date(`${toMinskDate(date)}T00:00:00Z`).getUTCDay();
+  return weekday === 0 || weekday === 6;
+}
+
+/** Рабочее время: будний день между началом и концом рабочего дня. */
+export function isMinskWorkingTime(date: Date): boolean {
+  if (isMinskWeekend(date)) {
+    return false;
+  }
+
+  const hour = minskHour(date);
+  return hour >= WORK_DAY_START_HOUR && hour < WORK_DAY_END_HOUR;
 }
 
 export function toMinskDate(date: Date): string {

@@ -80,16 +80,30 @@ export function DocumentsScreen() {
                   )}
                 </div>
 
-                <p className="mt-0.5 text-sm text-fg-soft">
-                  {[trip.authorName, ...trip.participantNames].join(', ')} · договор{' '}
-                  {trip.contract}
+                {/* Перечень изменений первым: без него финотдел сравнивает с
+                    тем, что помнит. Требование спецификации к Э5. */}
+                {trip.changes.length > 0 && (
+                  <ul className="mt-1 list-inside list-disc text-sm text-warn-fg">
+                    {trip.changes.map((change) => (
+                      <li key={change}>{change}</li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Договор и цель — то, с чем финотдел работает, поэтому
+                    крупнее остального. */}
+                <p className="mt-1 text-sm">
+                  Договор <span className="font-medium">{trip.contract}</span> · {trip.purpose}
                 </p>
+
                 <p className="mt-0.5 text-sm text-fg-soft">
                   {formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} ·{' '}
+                  {[trip.authorName, ...trip.participantNames].join(', ')}
+                </p>
+                <p className="mt-0.5 text-sm text-fg-soft">
                   {trip.carLabel ?? 'машина не выбрана'} ·{' '}
                   {trip.driverName ? `вод. ${trip.driverName}` : 'без водителя'}
                 </p>
-                <p className="mt-0.5 text-sm">Цель: {trip.purpose}</p>
               </div>
 
               <div className="flex flex-wrap gap-2">

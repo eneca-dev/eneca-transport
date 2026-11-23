@@ -14,10 +14,21 @@ export interface AssignmentMessage {
   endsAt: string;
   route: string;
   carLabel: string | null;
+  /** Автор заявки: за поездку отвечает он, и водителю это нужно знать. */
+  responsible: string;
+  /** Участники без автора. */
   passengers: string[];
+  contract: string;
+  purpose: string;
 }
 
-/** Т1: водителя назначили на поездку. */
+/**
+ * Т1: водителя назначили на поездку.
+ *
+ * Договор и цель здесь не для порядка: на объекте водителя спрашивают, по
+ * какому договору приехали. Ответственного он должен знать, чтобы было к кому
+ * обратиться на месте.
+ */
 export function messageT1(trip: AssignmentMessage): string {
   const lines = [
     `Поездка #${trip.tripId}`,
@@ -25,10 +36,16 @@ export function messageT1(trip: AssignmentMessage): string {
     trip.route,
     '',
     `Машина: ${trip.carLabel ?? 'не указана'}`,
-    `Пассажиры: ${trip.passengers.length > 0 ? trip.passengers.join(', ') : 'нет'}`,
-    '',
-    `Подтвердите, пожалуйста, в течение ${DRIVER_CONFIRMATION_MINUTES} минут.`,
+    `Ответственный: ${trip.responsible}`,
   ];
+
+  if (trip.passengers.length > 0) {
+    lines.push(`Пассажиры: ${trip.passengers.join(', ')}`);
+  }
+
+  lines.push(`Договор: ${trip.contract}`, `Цель: ${trip.purpose}`);
+  lines.push('', `Подтвердите, пожалуйста, в течение ${DRIVER_CONFIRMATION_MINUTES} минут.`);
+
   return lines.join('\n');
 }
 
@@ -66,13 +83,21 @@ export function messageT5Odometer(
   tripId: number,
   route: string,
   odometerStartKm: number,
+  responsible: string | null = null,
 ): string {
-  return [
-    `Поездка #${tripId} ${route}. Время возврата.`,
+  const lines = [`Поездка #${tripId} ${route}. Время возврата.`];
+
+  if (responsible) {
+    lines.push(`Ответственный: ${responsible}.`);
+  }
+
+  lines.push(
     '',
     'Введите показание одометра.',
     `Начальное — ${odometerStartKm.toLocaleString('ru-RU')} км.`,
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 export function messageT5Condition(odometerKm: number, distanceKm: number): string {
@@ -119,7 +144,13 @@ export interface DriverTripLine {
   endsAt: string;
   route: string;
   carLabel: string | null;
-  status: 'ожидает подтверждения' | 'подтверждена' | 'в пути';
+  status:
+    | 'ожидает подтверждения'
+    | 'подтверждение просрочено'
+    | 'вы отказались'
+    | 'подтверждена'
+    | 'в пути'
+    | 'закрыта';
 }
 
 /** Ответ на кнопку «Мои поездки». */
@@ -139,20 +170,81 @@ export function messageMyTrips(trips: DriverTripLine[]): string {
   return ['Ваши поездки:', '', lines.join('\n\n')].join('\n');
 }
 
+export interface DriverDayTrip extends DriverTripLine {
+  /** Автор заявки: водителю нужно знать, к кому обращаться на месте. */
+  responsible: string | null;
+}
+
+/**
+ * Календарь водителя: подпись над сеткой месяца.
+ *
+ * Счётчик написан как «Поездок: 3», а не «3 поездки»: так не нужно
+ * согласовывать окончание, и при одной поездке строка не выглядит ошибкой.
+ */
+export function messageDriverMonth(monthLabel: string, tripCount: number): string {
+  if (tripCount === 0) {
+    return [
+      `Ваш график на ${monthLabel}.`,
+      '',
+      'В этом месяце за вами поездок нет. Стрелками можно посмотреть другие месяцы.',
+    ].join('\n');
+  }
+
+  return [
+    `Ваш график на ${monthLabel}.`,
+    `Поездок: ${tripCount}.`,
+    '',
+    'Дни с поездками — в квадратных скобках. Нажмите день, чтобы посмотреть.',
+  ].join('\n');
+}
+
+/** Календарь водителя: один день. */
+export function messageDriverDay(dayLabel: string, trips: DriverDayTrip[]): string {
+  if (trips.length === 0) {
+    return `${dayLabel} — поездок нет.`;
+  }
+
+  const blocks = trips.map((trip) => {
+    const lines = [
+      `#${trip.tripId} · ${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))}`,
+      trip.route,
+      `${trip.carLabel ?? 'машина не указана'} · ${trip.status}`,
+    ];
+
+    if (trip.responsible) {
+      lines.push(`Ответственный: ${trip.responsible}`);
+    }
+
+    return lines.join('\n');
+  });
+
+  return [dayLabel, '', blocks.join('\n\n')].join('\n');
+}
+
+/** Нажали день без поездок: всплывающая подсказка, сообщение не меняется. */
+export function messageDriverFreeDay(dayLabel: string): string {
+  return `${dayLabel} — поездок нет.`;
+}
+
 /** Т3: накануне выезда, 17:00. */
 export function messageT3(
   tripId: number,
   route: string,
   departure: string,
   carLabel: string | null,
+  responsible: string | null = null,
 ): string {
-  return [
-    `Завтра поездка #${tripId} ${route}.`,
-    '',
-    `Выезд ${departure}.`,
-    `Машина: ${carLabel ?? 'не указана'}.`,
-    'Ключи у Виктории на рецепции.',
-  ].join('\n');
+  const lines = [`Завтра поездка #${tripId} ${route}.`, '', `Выезд ${departure}.`];
+
+  lines.push(`Машина: ${carLabel ?? 'не указана'}.`);
+
+  if (responsible) {
+    lines.push(`Ответственный: ${responsible}.`);
+  }
+
+  lines.push('Ключи у Виктории на рецепции.');
+
+  return lines.join('\n');
 }
 
 /** Т4: поездка изменена, отменена или водитель снят. */

@@ -7,6 +7,7 @@ import { BADGE, BADGE_DOT, BUTTON_SECONDARY, FIELD } from '@/components/controls
 import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatDayRange } from '@/lib/datetime';
 import { toMinskDate } from '@/modules/trips/booking';
+import { TONE_CLASS } from '@/modules/trips/tripStatus';
 
 import { loadHistory, loadHistoryFilters } from './actions';
 
@@ -190,7 +191,7 @@ export function HistoryScreen() {
                     <span className="font-mono text-sm text-fg-soft">#{trip.id}</span>
                     <span className="font-medium">{trip.route}</span>
                     {trip.status === 'cancelled' && (
-                      <span className={`${BADGE} bg-bad text-bad-fg`}>
+                      <span className={`${BADGE} ${TONE_CLASS.bad}`}>
                         <span className={BADGE_DOT} aria-hidden />
                         отменена
                       </span>
@@ -198,7 +199,7 @@ export function HistoryScreen() {
                     {/* Замечание по машине отличается от примечания: его видно
                         сразу, потому что оно про исправность. */}
                     {trip.conditionOk === false && (
-                      <span className={`${BADGE} bg-warn text-warn-fg`}>
+                      <span className={`${BADGE} ${TONE_CLASS.warn}`}>
                         <span className={BADGE_DOT} aria-hidden />
                         было замечание
                       </span>

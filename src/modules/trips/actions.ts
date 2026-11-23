@@ -9,7 +9,14 @@ import { searchEmployees } from '@/modules/employees/queries';
 
 import { fromMinskInput } from './booking';
 import { listCarOptions, listDriverOptions } from './availability';
-import { cancelTrip, rescheduleTrip } from './changeService';
+import {
+  assignDriver,
+  cancelTrip,
+  changeCar,
+  confirmForDriver,
+  editTrip,
+  rescheduleTrip,
+} from './changeService';
 import { notifyFinanceNewRequest } from '@/modules/documents/notify';
 
 import { notifyTripBooked } from './notify';
@@ -511,5 +518,196 @@ export async function correctOdometerAction(
       : { success: false, error: 'Исправление сохранено, но карточку прочитать не удалось.' };
   } catch (error) {
     return failure(error, 'Не удалось исправить показание.');
+  }
+}
+
+/**
+ * Свободные водители на даты поездки — для выбора замены в Э3.
+ *
+ * Сама поездка из занятости исключается: иначе её водитель выглядел бы занятым
+ * собой же.
+ */
+export async function loadDriversForTrip(
+  token: string,
+  tripId: number,
+): Promise<ActionResult<DriverOption[]>> {
+  try {
+    const employee = await requireRole(token, 'aho');
+
+    const card = await getTripCard(tripId, employee.id);
+    if (!card) {
+      return { success: false, error: 'Поездка не найдена.' };
+    }
+
+    return {
+      success: true,
+      data: await listDriverOptions(new Date(card.startsAt), new Date(card.endsAt), {
+        exceptTripId: tripId,
+      }),
+    };
+  } catch (error) {
+    return failure(error, 'Не удалось получить список водителей.');
+  }
+}
+
+/** «Назначить водителя» в карточке поездки. Только АХО. */
+export async function assignDriverAction(
+  token: string,
+  tripId: number,
+  driverId: string,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const employee = await requireRole(token, 'aho');
+
+    if (!z.string().uuid().safeParse(driverId).success) {
+      return { success: false, error: 'Выберите водителя.' };
+    }
+
+    const outcome = await assignDriver(tripId, employee.id, driverId);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/');
+    revalidatePath('/documents');
+
+    const updated = await getTripCard(tripId, employee.id);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Водитель назначен, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось назначить водителя.');
+  }
+}
+
+/** «Подтвердить за водителя». Только АХО, в журнале остаётся её имя. */
+export async function confirmForDriverAction(
+  token: string,
+  tripId: number,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const employee = await requireRole(token, 'aho');
+
+    const outcome = await confirmForDriver(tripId, employee.id);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/');
+
+    const updated = await getTripCard(tripId, employee.id);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Подтверждение сохранено, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось подтвердить за водителя.');
+  }
+}
+
+const editSchema = z.object({
+  route: z.string().trim().min(3, 'Укажите маршрут').max(200, 'Слишком длинный маршрут'),
+  contract: z.string().trim().min(1, 'Укажите договор').max(60, 'Слишком длинный номер договора'),
+  purpose: z.string().trim().min(3, 'Укажите цель поездки').max(200, 'Слишком длинная цель'),
+  participantIds: z.array(z.string().uuid()).max(20, 'Слишком много участников'),
+});
+
+export type EditFormInput = z.infer<typeof editSchema>;
+
+/** «Изменить» в карточке поездки: маршрут, договор, цель, участники. */
+export async function editTripAction(
+  token: string,
+  tripId: number,
+  input: EditFormInput,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const access = await requireTripChanger(token, tripId);
+    if (!access.ok) {
+      return { success: false, error: access.error };
+    }
+
+    const parsed = editSchema.safeParse(input);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
+    }
+
+    const outcome = await editTrip(tripId, access.employeeId, parsed.data);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/');
+    revalidatePath('/documents');
+
+    const updated = await getTripCard(tripId, access.employeeId);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Правка сохранена, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось изменить заявку.');
+  }
+}
+
+/** Свободные машины на даты поездки — для смены машины в Э3. */
+export async function loadCarsForTrip(
+  token: string,
+  tripId: number,
+): Promise<ActionResult<CarOption[]>> {
+  try {
+    const access = await requireTripChanger(token, tripId);
+    if (!access.ok) {
+      return { success: false, error: access.error };
+    }
+
+    return {
+      success: true,
+      data: await listCarOptions(
+        new Date(access.card.startsAt),
+        new Date(access.card.endsAt),
+        { exceptTripId: tripId },
+      ),
+    };
+  } catch (error) {
+    return failure(error, 'Не удалось получить список машин.');
+  }
+}
+
+/** «Сменить машину» в карточке поездки. */
+export async function changeCarAction(
+  token: string,
+  tripId: number,
+  carId: string,
+): Promise<ActionResult<TripCard>> {
+  try {
+    const access = await requireTripChanger(token, tripId);
+    if (!access.ok) {
+      return { success: false, error: access.error };
+    }
+
+    if (!z.string().uuid().safeParse(carId).success) {
+      return { success: false, error: 'Выберите машину.' };
+    }
+
+    const outcome = await changeCar(tripId, access.employeeId, carId);
+
+    if (!outcome.ok) {
+      return { success: false, error: outcome.reason };
+    }
+
+    revalidatePath(`/trips/${tripId}`);
+    revalidatePath('/');
+    revalidatePath('/documents');
+
+    const updated = await getTripCard(tripId, access.employeeId);
+    return updated
+      ? { success: true, data: updated }
+      : { success: false, error: 'Машина изменена, но карточку прочитать не удалось.' };
+  } catch (error) {
+    return failure(error, 'Не удалось сменить машину.');
   }
 }

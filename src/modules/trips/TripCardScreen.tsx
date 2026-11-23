@@ -9,31 +9,33 @@ import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatMoment, formatPeriod } from '@/lib/datetime';
 
 import {
+  assignDriverAction,
   cancelTripAction,
+  changeCarAction,
+  confirmForDriverAction,
   correctOdometerAction,
+  editTripAction,
   loadTripCard,
   rescheduleTripAction,
   submitTripReturn,
 } from './actions';
+import { CarPicker } from './CarPicker';
 import { CorrectionForm } from './CorrectionForm';
+import { DriverPicker } from './DriverPicker';
+import { EditTripForm } from './EditTripForm';
 import { RescheduleForm } from './RescheduleForm';
 import { ReturnForm } from './ReturnForm';
-import {
-  CONFIRMATION_LABEL,
-  CONFIRMATION_TONE,
-  STATUS_LABEL,
-  STATUS_TONE,
-  TONE_CLASS,
-  whatNext,
-} from './tripStatus';
+import { describeForJournal } from './changeLog';
+import { CONFIRMATION_LABEL, CONFIRMATION_TONE, TONE_CLASS, tripState } from './tripStatus';
 
-import type { TripCard, TripEvent } from './queries';
+import type { TripCard } from './queries';
 
 /**
  * Э3 «Карточка поездки».
  *
- * Кнопок «Перенести» и «Отменить» пока нет: перенос и отмена — это И7. Мёртвых
- * кнопок не держим, появятся вместе с действиями.
+ * Делится на три блока: главное (когда, куда, с кем, на чём), данные для
+ * документов и то, что появилось в самой поездке. Пустые поля не показываются:
+ * «Водитель: без водителя» — это отсутствие данных, а не данные.
  */
 
 interface TripCardScreenProps {
@@ -45,17 +47,25 @@ const EVENT_LABEL: Record<string, string> = {
   booked: 'бронь создана',
   driver_confirmed: 'водитель подтвердил',
   driver_declined: 'водитель отказался',
+  driver_timeout: 'водитель не подтвердил за 15 минут',
+  driver_dropped: 'водитель снят, поедет автор',
+  driver_assigned: 'назначен водитель',
+  driver_confirmed_by_aho: 'АХО подтвердила за водителя',
+  trip_edited: 'заявка изменена',
+  car_changed: 'сменилась машина',
+  driver_unassigned: 'водитель снят: недоступен',
   docs_ready: 'документы готовы',
   keys_issued: 'ключи выданы',
+  return_submitted: 'передано показание одометра',
+  driver_return_completed: 'водитель закончил оформление возврата',
   keys_returned: 'ключи приняты',
   closed: 'поездка закрыта',
   cancelled: 'поездка отменена',
   rescheduled: 'поездка перенесена',
+  odometer_corrected: 'исправлено показание одометра',
+  remark_handled: 'замечание закрыто',
+  remark_to_repair: 'машина отправлена в ремонт',
 };
-
-function eventLabel(event: TripEvent): string {
-  return EVENT_LABEL[event.kind] ?? event.kind;
-}
 
 export function TripCardScreen({ tripId }: TripCardScreenProps) {
   const { employee, getToken } = useTeamsAuth();
@@ -66,6 +76,9 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
   const [rescheduling, setRescheduling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [correctingClosed, setCorrectingClosed] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [pickingCar, setPickingCar] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const load = useCallback(() => {
@@ -102,9 +115,6 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
   /**
    * Перенос и отмена — до выдачи ключей, автору или АХО. После выдачи поездка
    * идёт своим ходом: отменять выданную машину бессмысленно, её принимают.
-   *
-   * Право АХО проверяет сервер; здесь кнопки показываются автору, а АХО видит
-   * их в любой поездке.
    */
   const canChange =
     trip !== null &&
@@ -117,6 +127,9 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
     setRescheduling(false);
     setConfirmCancel(false);
     setCorrectingClosed(false);
+    setAssigning(false);
+    setEditing(false);
+    setPickingCar(false);
   }
 
   /** Обновить карточку после действия, показав ошибку, если она была. */
@@ -157,6 +170,15 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
     return <p className="text-sm text-fg-soft">Загрузка…</p>;
   }
 
+  const isAho = employee.roles.includes('aho');
+
+  const state = tripState(trip, {
+    isAuthor: trip.isAuthor,
+    isAho: employee.roles.includes('aho'),
+    isReception: employee.roles.includes('reception'),
+    isFinance: employee.roles.includes('finance'),
+  });
+
   const people = [
     `${trip.authorName} (автор)`,
     ...trip.participants.map((person) => person.displayName),
@@ -171,88 +193,121 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         <ArrowLeft className="size-4" aria-hidden />к моим поездкам
       </Link>
 
-      <div className="mt-3 mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Поездка #{trip.id}</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`${BADGE} ${TONE_CLASS[STATUS_TONE[trip.status]]}`}>
+      {/* Шапка: когда, куда и одно состояние. Номер — подписью: он нужен для
+          ссылки и разговора, а не для чтения. */}
+      <div className="mt-3 mb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-lg font-semibold">
+            {formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))}
+          </h1>
+          <span className={`${BADGE} ${TONE_CLASS[state.tone]}`}>
             <span className={BADGE_DOT} aria-hidden />
-            {STATUS_LABEL[trip.status]}
+            {state.label}
           </span>
-          {trip.docsRecheckRequired && (
-            <span className={`${BADGE} ${TONE_CLASS.warn}`}>
-              <span className={BADGE_DOT} aria-hidden />
-              требуется проверка документов
-            </span>
-          )}
         </div>
+        <p className="mt-1 text-base font-medium">{trip.route}</p>
+        <p className="mt-0.5 text-sm text-fg-soft">
+          Поездка <span className="font-mono">#{trip.id}</span>
+        </p>
       </div>
 
-      {whatNext(trip) && (
-        <p className="mb-4 rounded-md border border-line bg-surface-soft px-4 py-3 text-sm">
-          <span className="text-fg-soft">Сейчас: </span>
-          {whatNext(trip)}
+      {state.waitingFor && (
+        <p className="mb-4 rounded-md border border-brand bg-surface-soft px-4 py-3 text-sm font-medium">
+          От вас: {state.waitingFor}
         </p>
       )}
 
       <div className="rounded-lg border border-line bg-surface p-4 sm:p-6">
-        <p className="font-medium">
-          {formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))}
-          <span className="text-fg-soft"> · </span>
-          {trip.route}
-        </p>
-
-        <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt className="text-fg-soft">Участники</dt>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt className="text-fg-soft">Едут</dt>
           <dd className="min-w-0 break-words">{people}</dd>
 
+          <dt className="text-fg-soft">Машина</dt>
+          <dd>{trip.carModel ? `${trip.carModel} ${trip.carPlate}` : 'не выбрана'}</dd>
+
+          {/* Водитель показывается только когда он нужен: иначе строка
+              «без водителя» стоит наравне с настоящими данными. */}
+          {trip.needsDriver && (
+            <>
+              <dt className="text-fg-soft">Водитель</dt>
+              <dd className="flex flex-wrap items-center gap-2">
+                {trip.driverName ?? 'не назначен'}
+                <span
+                  className={`${BADGE} ${TONE_CLASS[CONFIRMATION_TONE[trip.driverConfirmation]]}`}
+                >
+                  <span className={BADGE_DOT} aria-hidden />
+                  {CONFIRMATION_LABEL[trip.driverConfirmation]}
+                </span>
+              </dd>
+            </>
+          )}
+        </dl>
+      </div>
+
+      {/* Данные для документов отдельным блоком: автору они нужны один раз при
+          оформлении, а финотделу — каждый раз. */}
+      <h2 className="mt-4 mb-2 text-xs font-semibold tracking-wide text-fg-soft uppercase">
+        Для документов
+      </h2>
+      <div className="rounded-lg border border-line bg-surface p-4 sm:p-6">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
           <dt className="text-fg-soft">Договор</dt>
           <dd>{trip.contract}</dd>
 
           <dt className="text-fg-soft">Цель</dt>
           <dd className="min-w-0 break-words">{trip.purpose}</dd>
-
-          <dt className="text-fg-soft">Машина</dt>
-          <dd>
-            {trip.carModel ? `${trip.carModel} ${trip.carPlate}` : 'не выбрана'}
-          </dd>
-
-          <dt className="text-fg-soft">Водитель</dt>
-          <dd className="flex flex-wrap items-center gap-2">
-            {trip.needsDriver ? (trip.driverName ?? 'не назначен') : 'без водителя'}
-            {trip.needsDriver && (
-              <span className={`${BADGE} ${TONE_CLASS[CONFIRMATION_TONE[trip.driverConfirmation]]}`}>
-                <span className={BADGE_DOT} aria-hidden />
-                {CONFIRMATION_LABEL[trip.driverConfirmation]}
-              </span>
-            )}
-          </dd>
-
-          {trip.odometerStartKm !== null && (
-            <>
-              <dt className="text-fg-soft">Одометр</dt>
-              <dd>
-                {trip.odometerStartKm.toLocaleString('ru-RU')}
-                {trip.odometerEndKm !== null && (
-                  <> → {trip.odometerEndKm.toLocaleString('ru-RU')} км</>
-                )}
-                {trip.distanceKm !== null && (
-                  <span className="text-fg-soft">
-                    {' '}
-                    · пробег {trip.distanceKm.toLocaleString('ru-RU')} км
-                  </span>
-                )}
-              </dd>
-            </>
-          )}
-
-          {trip.returnNote && (
-            <>
-              <dt className="text-fg-soft">Примечание</dt>
-              <dd className="min-w-0 break-words">{trip.returnNote}</dd>
-            </>
-          )}
         </dl>
       </div>
+
+      {/* Блок появляется только после выдачи ключей: до неё одометра и
+          примечаний нет, и пустые строки только мешают. */}
+      {trip.keysIssuedAt !== null && (
+        <>
+          <h2 className="mt-4 mb-2 text-xs font-semibold tracking-wide text-fg-soft uppercase">
+            Одометр и возврат
+          </h2>
+          <div className="rounded-lg border border-line bg-surface p-4 sm:p-6">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+              <dt className="text-fg-soft">Ключи выданы</dt>
+              <dd>{formatMoment(new Date(trip.keysIssuedAt))}</dd>
+
+              {trip.odometerStartKm !== null && (
+                <>
+                  <dt className="text-fg-soft">Одометр</dt>
+                  <dd>
+                    {trip.odometerStartKm.toLocaleString('ru-RU')}
+                    {trip.odometerEndKm !== null && (
+                      <> → {trip.odometerEndKm.toLocaleString('ru-RU')} км</>
+                    )}
+                    {trip.distanceKm !== null && (
+                      <span className="text-fg-soft">
+                        {' '}
+                        · пробег {trip.distanceKm.toLocaleString('ru-RU')} км
+                      </span>
+                    )}
+                  </dd>
+                </>
+              )}
+
+              {trip.keysReturnedAt !== null && (
+                <>
+                  <dt className="text-fg-soft">Ключи приняты</dt>
+                  <dd>{formatMoment(new Date(trip.keysReturnedAt))}</dd>
+                </>
+              )}
+
+              {trip.returnNote && (
+                <>
+                  <dt className="text-fg-soft">
+                    {trip.conditionOk === false ? 'Замечание' : 'Примечание'}
+                  </dt>
+                  <dd className="min-w-0 break-words">{trip.returnNote}</dd>
+                </>
+              )}
+            </dl>
+          </div>
+        </>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {canReturn && !returning && (
@@ -269,10 +324,9 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         )}
 
         {/* Исправление после закрытия — только АХО и только с причиной. */}
-        {trip !== null &&
-          trip.status === 'closed' &&
+        {trip.status === 'closed' &&
           trip.odometerEndKm !== null &&
-          employee.roles.includes('aho') &&
+          isAho &&
           !correctingClosed && (
             <button
               type="button"
@@ -285,6 +339,62 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
               Исправить показание
             </button>
           )}
+
+        {/* Решения АХО по водителю: назначить другого или подтвердить за
+            него, если он ответил голосом по телефону. */}
+        {canChange && isAho && !assigning && (
+          <button
+            type="button"
+            onClick={() => {
+              closeForms();
+              setAssigning(true);
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            {trip.needsDriver && trip.driverName ? 'Заменить водителя' : 'Назначить водителя'}
+          </button>
+        )}
+
+        {canChange &&
+          isAho &&
+          trip.needsDriver &&
+          trip.driverName !== null &&
+          trip.driverConfirmation !== 'confirmed' && (
+            <button
+              type="button"
+              onClick={() => apply((token) => confirmForDriverAction(token, tripId))}
+              disabled={pending}
+              className={BUTTON_SECONDARY}
+            >
+              Подтвердить за водителя
+            </button>
+          )}
+
+        {canChange && !editing && (
+          <button
+            type="button"
+            onClick={() => {
+              closeForms();
+              setEditing(true);
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            Изменить
+          </button>
+        )}
+
+        {canChange && !pickingCar && (
+          <button
+            type="button"
+            onClick={() => {
+              closeForms();
+              setPickingCar(true);
+            }}
+            className={BUTTON_SECONDARY}
+          >
+            Сменить машину
+          </button>
+        )}
 
         {canChange && !rescheduling && !confirmCancel && (
           <>
@@ -314,7 +424,7 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
 
       {/* Отмена необратима и освобождает машину, поэтому спрашиваем ещё раз.
           Своим диалогом, а не браузерным: Teams его не показывает. */}
-      {confirmCancel && trip && (
+      {confirmCancel && (
         <div className="mt-4 rounded-lg border border-bad-line bg-bad p-4 text-sm text-bad-fg">
           <p className="font-medium">Отменить поездку #{trip.id}?</p>
           <p className="mt-1">
@@ -342,7 +452,7 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         </div>
       )}
 
-      {correctingClosed && trip && trip.odometerEndKm !== null && (
+      {correctingClosed && trip.odometerEndKm !== null && (
         <div className="mt-4">
           <CorrectionForm
             odometerStartKm={trip.odometerStartKm}
@@ -354,7 +464,42 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         </div>
       )}
 
-      {rescheduling && trip && (
+      {editing && (
+        <div className="mt-4">
+          <EditTripForm
+            trip={trip}
+            pending={pending}
+            onCancel={() => setEditing(false)}
+            onSubmit={(input) => apply((token) => editTripAction(token, tripId, input))}
+          />
+        </div>
+      )}
+
+      {pickingCar && (
+        <div className="mt-4">
+          <CarPicker
+            tripId={tripId}
+            currentCarLabel={trip.carModel ? `${trip.carModel} ${trip.carPlate}` : null}
+            pending={pending}
+            onCancel={() => setPickingCar(false)}
+            onPick={(carId) => apply((token) => changeCarAction(token, tripId, carId))}
+          />
+        </div>
+      )}
+
+      {assigning && (
+        <div className="mt-4">
+          <DriverPicker
+            tripId={tripId}
+            currentDriverName={trip.needsDriver ? trip.driverName : null}
+            pending={pending}
+            onCancel={() => setAssigning(false)}
+            onPick={(driverId) => apply((token) => assignDriverAction(token, tripId, driverId))}
+          />
+        </div>
+      )}
+
+      {rescheduling && (
         <div className="mt-4">
           <RescheduleForm
             startsAt={trip.startsAt}
@@ -367,7 +512,7 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         </div>
       )}
 
-      {returning && trip && (
+      {returning && (
         <div className="mt-4">
           <ReturnForm
             odometerStartKm={trip.odometerStartKm}
@@ -382,38 +527,33 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
             }
             pending={pending}
             onCancel={() => setReturning(false)}
-            onSubmit={(input) =>
-              startTransition(async () => {
-                try {
-                  const result = await submitTripReturn(await getToken(), tripId, input);
-                  if (result.success) {
-                    setTrip(result.data);
-                    setError(null);
-                    setReturning(false);
-                  } else {
-                    setError(result.error);
-                  }
-                } catch {
-                  setError('Не удалось связаться с сервером. Попробуйте ещё раз.');
-                }
-              })
-            }
+            onSubmit={(input) => apply((token) => submitTripReturn(token, tripId, input))}
           />
         </div>
       )}
 
-      <h2 className="mt-6 mb-2 text-sm font-semibold">Журнал</h2>
+      <h2 className="mt-6 mb-2 text-xs font-semibold tracking-wide text-fg-soft uppercase">
+        Журнал
+      </h2>
       {trip.events.length === 0 ? (
         <p className="text-sm text-fg-soft">Пока ничего не происходило.</p>
       ) : (
         <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
-          {trip.events.map((event) => (
-            <li key={event.id} className="flex flex-wrap gap-x-3 px-4 py-2 text-sm">
-              <span className="text-fg-soft">{formatMoment(new Date(event.createdAt))}</span>
-              {event.actorName && <span>{event.actorName}</span>}
-              <span className="text-fg-soft">— {eventLabel(event)}</span>
-            </li>
-          ))}
+          {trip.events.map((event) => {
+            const extra = describeForJournal(event);
+            return (
+              <li key={event.id} className="px-4 py-2 text-sm">
+                <span className="text-fg-soft">{formatMoment(new Date(event.createdAt))}</span>
+                {event.actorName && <span className="ml-3">{event.actorName}</span>}
+                <span className="ml-3 text-fg-soft">
+                  — {EVENT_LABEL[event.kind] ?? event.kind}
+                </span>
+                {/* Подробности уже лежат в базе: раньше в журнале стояло просто
+                    «поездка перенесена», без того, что именно изменилось. */}
+                {extra && <span className="block text-fg-soft sm:ml-3 sm:inline">{extra}</span>}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

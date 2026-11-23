@@ -59,6 +59,7 @@ export async function POST(request: Request) {
       const reply = await replyToDriver(sender, message.text);
       await sendTelegramMessage(sender.chatId, reply.text, {
         buttons: reply.buttons,
+        rows: reply.rows,
         withKeyboard: reply.withKeyboard,
       });
     }

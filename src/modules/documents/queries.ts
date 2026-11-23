@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { getDb } from '@/config/supabase';
+import { DOCUMENT_AFFECTING, describeChange } from '@/modules/trips/changeLog';
 
 /**
  * Очередь документов (Э5) — то, что ждёт финотдела.
@@ -24,6 +25,11 @@ export interface DocumentQueueItem {
   /** Заявка уже была готова и изменилась — повторная проверка. */
   recheck: boolean;
   docsReadyAt: string | null;
+  /**
+   * Что изменилось после последней отметки «Документы готовы». Пусто у новых
+   * заявок: там меняться было нечему.
+   */
+  changes: string[];
 }
 
 interface QueueRow {
@@ -92,6 +98,8 @@ export async function listDocumentQueue(): Promise<DocumentQueueItem[]> {
     byTrip.set(row.trip_id, names);
   }
 
+  const changesByTrip = await loadChanges(rows);
+
   return rows.map((row) => ({
     id: row.id,
     startsAt: row.starts_at,
@@ -105,5 +113,62 @@ export async function listDocumentQueue(): Promise<DocumentQueueItem[]> {
     driverName: row.drivers?.full_name ?? null,
     recheck: row.docs_recheck_required,
     docsReadyAt: row.docs_ready_at,
+    changes: changesByTrip.get(row.id) ?? [],
   }));
+}
+
+interface EventRow {
+  trip_id: number;
+  kind: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+/**
+ * Что изменилось после последней отметки «Документы готовы».
+ *
+ * Всё, что было до неё, финотдел уже учёл — иначе перечень рос бы с каждой
+ * правкой и к третьей стал бы нечитаем.
+ */
+async function loadChanges(trips: QueueRow[]): Promise<Map<number, string[]>> {
+  const result = new Map<number, string[]>();
+
+  if (trips.length === 0) {
+    return result;
+  }
+
+  const { data, error } = await getDb()
+    .from('trip_events')
+    .select('trip_id, kind, payload, created_at')
+    .in(
+      'trip_id',
+      trips.map((row) => row.id),
+    )
+    .order('created_at')
+    .returns<EventRow[]>();
+
+  if (error) {
+    console.error('Не удалось прочитать изменения заявок', error);
+    return result;
+  }
+
+  const readyAt = new Map(trips.map((row) => [row.id, row.docs_ready_at]));
+
+  for (const event of data ?? []) {
+    const since = readyAt.get(event.trip_id) ?? null;
+
+    if (since !== null && event.created_at <= since) {
+      continue;
+    }
+    if (!DOCUMENT_AFFECTING.includes(event.kind as (typeof DOCUMENT_AFFECTING)[number])) {
+      continue;
+    }
+
+    const text = describeChange(event);
+    if (text) {
+      result.set(event.trip_id, [...(result.get(event.trip_id) ?? []), text]);
+    }
+  }
+
+  return result;
 }
