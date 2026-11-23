@@ -2,7 +2,12 @@ import 'server-only';
 
 import { cardDriverLateConfirm, cardK14, cardK16 } from '@/lib/bots/cards';
 import { sendCard } from '@/lib/bots/teamsSender';
-import { answerCallback, closeTelegramButtons, sendTelegramMessage } from '@/lib/bots/telegram';
+import {
+  answerCallback,
+  closeTelegramButtons,
+  editTelegramMessage,
+  sendTelegramMessage,
+} from '@/lib/bots/telegram';
 import { acceptCondition, acceptNote, askReturnStep } from './driverReturn';
 import {
   messageDriverConfirmedByAho,
@@ -10,7 +15,12 @@ import {
   messageT1Answered,
 } from '@/lib/bots/telegramMessages';
 import { getDb } from '@/config/supabase';
-import { handleCalendarCallback, isCalendarCallback } from '@/modules/drivers/calendar';
+import { ANSWER_PATTERN } from '@/modules/drivers/calendarGrid';
+import {
+  driverDayReply,
+  handleCalendarCallback,
+  isCalendarCallback,
+} from '@/modules/drivers/calendar';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import { sendFailureReason } from './notify';
@@ -408,59 +418,45 @@ export interface DriverCallback {
   data: string;
 }
 
+type AnswerOutcome =
+  | { ok: true; driverId: string; trip: TripRow; toast: string }
+  | { ok: false; toast: string };
+
 /**
- * Ответ водителя на Т1.
+ * Записать ответ водителя на назначение.
+ *
+ * Общая часть для двух кнопок: в самом сообщении с назначением и в календаре.
+ * Разойдутся — и подтверждение из календаря перестанет уведомлять АХО.
  *
  * Поездка проверяется по chat_id того, кто нажал: кнопку можно переслать, но
  * ответить за другого водителя нельзя.
  */
-export async function handleDriverCallback(callback: DriverCallback): Promise<void> {
-  // Календарь: листание месяцев и просмотр дня. Отдельной веткой, потому что
-  // он не про одну поездку и ничего в базе не меняет.
-  if (isCalendarCallback(callback.data)) {
-    await handleCalendarCallback(callback);
-    return;
-  }
-
-  // Кнопки диалога возврата: состояние машины, пропуск примечания, начало.
-  if (['cond:ok', 'cond:remark', 'note:skip', 'return:start'].includes(callback.data)) {
-    await handleReturnCallback(callback);
-    return;
-  }
-
-  const match = /^(confirm|decline):(\d+)$/.exec(callback.data);
-
-  if (!match) {
-    await answerCallback(callback.callbackId, 'Эта кнопка больше не действует.');
-    return;
-  }
-
-  const confirmed = match[1] === 'confirm';
-  const tripId = Number(match[2]);
+async function recordDriverAnswer(
+  chatId: number,
+  tripId: number,
+  confirmed: boolean,
+): Promise<AnswerOutcome> {
   const db = getDb();
 
   const { data: driver, error: driverError } = await db
     .from('drivers')
     .select('id, full_name')
-    .eq('telegram_chat_id', callback.chatId)
+    .eq('telegram_chat_id', chatId)
     .maybeSingle<{ id: string; full_name: string }>();
 
   if (driverError || !driver) {
-    await answerCallback(callback.callbackId, 'Вы не подключены как водитель.');
-    return;
+    return { ok: false, toast: 'Вы не подключены как водитель.' };
   }
 
   const trip = await loadTrip(tripId);
 
   if (!trip || trip.driver_id !== driver.id) {
-    await answerCallback(callback.callbackId, 'Это назначение уже не ваше.');
-    return;
+    return { ok: false, toast: 'Это назначение уже не ваше.' };
   }
 
   // Ключи выданы — спорить не о чем: машина либо в пути, либо поездка закрыта.
   if (trip.keys_issued_at !== null || !['booked', 'docs_ready'].includes(trip.status)) {
-    await answerCallback(callback.callbackId, 'По этой поездке решения уже приняты.');
-    return;
+    return { ok: false, toast: 'По этой поездке решения уже приняты.' };
   }
 
   /**
@@ -473,11 +469,10 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
   const previous = trip.driver_confirmation;
 
   if (previous === (confirmed ? 'confirmed' : 'declined')) {
-    await answerCallback(
-      callback.callbackId,
-      confirmed ? 'Эта поездка уже подтверждена.' : 'Вы уже отказались, АХО знает.',
-    );
-    return;
+    return {
+      ok: false,
+      toast: confirmed ? 'Эта поездка уже подтверждена.' : 'Вы уже отказались, АХО знает.',
+    };
   }
 
   const { error: updateError } = await db
@@ -490,8 +485,7 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
 
   if (updateError) {
     console.error(`Поездка #${tripId}: не удалось записать ответ водителя`, updateError);
-    await answerCallback(callback.callbackId, 'Не получилось сохранить ответ. Попробуйте ещё раз.');
-    return;
+    return { ok: false, toast: 'Не получилось сохранить ответ. Попробуйте ещё раз.' };
   }
 
   await db.from('trip_events').insert({
@@ -512,11 +506,32 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
     await notifyAhoDriverLateConfirm(trip, driver.full_name);
   }
 
+  return {
+    ok: true,
+    driverId: driver.id,
+    trip,
+    toast: confirmed ? 'Подтверждено' : 'Передал в АХО',
+  };
+}
+
+/** Ответили кнопкой в сообщении с назначением: кнопки Т1 гасим. */
+async function answerFromAssignment(
+  callback: DriverCallback,
+  tripId: number,
+  confirmed: boolean,
+): Promise<void> {
+  const outcome = await recordDriverAnswer(callback.chatId, tripId, confirmed);
+
+  if (!outcome.ok) {
+    await answerCallback(callback.callbackId, outcome.toast);
+    return;
+  }
+
   const passengers = await loadPassengers(tripId);
-  const assignment = toAssignment(trip, passengers);
+  const assignment = toAssignment(outcome.trip, passengers);
 
   try {
-    await answerCallback(callback.callbackId, confirmed ? 'Подтверждено' : 'Передал в АХО');
+    await answerCallback(callback.callbackId, outcome.toast);
     await closeTelegramButtons(
       callback.chatId,
       callback.messageId,
@@ -524,9 +539,85 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
     );
   } catch (error) {
     // Ответ уже записан и АХО уведомлено. Непогашенные кнопки — неприятно, но
-    // повторное нажатие отсекается проверкой статуса выше.
+    // повторное нажатие отсекается проверкой состояния выше.
     console.error(`Поездка #${tripId}: не удалось обновить сообщение водителя`, error);
   }
+}
+
+/**
+ * Ответили кнопкой в календаре: перерисовываем тот же день.
+ *
+ * Сообщение с календарём остаётся календарём — водитель видит в нём новое
+ * состояние поездки и может листать дальше. Заменить его на текст назначения
+ * значило бы закрыть календарь за одно нажатие.
+ */
+async function answerFromCalendar(
+  callback: DriverCallback,
+  tripId: number,
+  date: string,
+  confirmed: boolean,
+): Promise<void> {
+  const outcome = await recordDriverAnswer(callback.chatId, tripId, confirmed);
+
+  if (!outcome.ok) {
+    await answerCallback(callback.callbackId, outcome.toast);
+    return;
+  }
+
+  await answerCallback(callback.callbackId, outcome.toast);
+
+  try {
+    const reply = await driverDayReply(outcome.driverId, date);
+    await editTelegramMessage(callback.chatId, callback.messageId, reply.text, reply.rows ?? []);
+  } catch (error) {
+    console.error(`Поездка #${tripId}: не удалось перерисовать день календаря`, error);
+  }
+}
+
+/**
+ * Нажатия кнопок водителя в Telegram.
+ *
+ * Разбор по видам кнопок: календарь, диалог возврата, ответ на назначение.
+ * Ответ на назначение приходит из двух мест — из самого сообщения с
+ * назначением и из календаря, — и дальше они расходятся только тем, что
+ * показать после ответа.
+ */
+export async function handleDriverCallback(callback: DriverCallback): Promise<void> {
+  // Ответ на назначение из календаря. Проверяется раньше остальных кнопок
+  // календаря: они начинаются с того же «cal:», но в базе ничего не меняют.
+  const fromCalendar = ANSWER_PATTERN.exec(callback.data);
+
+  if (fromCalendar) {
+    await answerFromCalendar(
+      callback,
+      Number(fromCalendar[2]),
+      fromCalendar[3],
+      fromCalendar[1] === 'c',
+    );
+    return;
+  }
+
+  // Календарь: листание месяцев и просмотр дня. Отдельной веткой, потому что
+  // он не про одну поездку и ничего в базе не меняет.
+  if (isCalendarCallback(callback.data)) {
+    await handleCalendarCallback(callback);
+    return;
+  }
+
+  // Кнопки диалога возврата: состояние машины, пропуск примечания, начало.
+  if (['cond:ok', 'cond:remark', 'note:skip', 'return:start'].includes(callback.data)) {
+    await handleReturnCallback(callback);
+    return;
+  }
+
+  const match = /^(confirm|decline):(\d+)$/.exec(callback.data);
+
+  if (!match) {
+    await answerCallback(callback.callbackId, 'Эта кнопка больше не действует.');
+    return;
+  }
+
+  await answerFromAssignment(callback, Number(match[2]), match[1] === 'confirm');
 }
 
 /**

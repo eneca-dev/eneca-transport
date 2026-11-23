@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getDb } from '@/config/supabase';
 
+import { lateReturnConflicts, lateReturnReason } from './bookingConflicts';
 import { notifyDriverTripClosed } from './notifyDriverReturn';
 import { notifyAhoOdometerTooLow, notifyAhoRemark, notifyTripClosed } from './notifyReturn';
 
@@ -30,12 +31,14 @@ interface TripRow {
   car_id: string | null;
   author_id: string;
   driver_id: string | null;
+  starts_at: string;
   odometer_start_km: number | null;
   odometer_end_km: number | null;
 }
 
 const TRIP_SELECT =
-  'id, status, car_id, author_id, driver_id, odometer_start_km, odometer_end_km';
+  'id, status, car_id, author_id, driver_id, starts_at, ' +
+  'odometer_start_km, odometer_end_km';
 
 /** Кто оформляет возврат: сотрудник во вкладке или водитель в Telegram. */
 export type ReturnActor = { employeeId: string } | { driverId: string };
@@ -195,6 +198,15 @@ export async function acceptKeys(tripId: number, employeeId: string): Promise<Re
     .returns<{ id: number }[]>();
 
   if (closeError) {
+    // 23P01 — занятый интервал машины или водителя наложился на другую бронь.
+    if (closeError.code === '23P01') {
+      const conflicts = await lateReturnConflicts(
+        { id: trip.id, carId: trip.car_id, driverId: trip.driver_id, startsAt: trip.starts_at },
+        new Date(now),
+      );
+
+      return { ok: false, reason: lateReturnReason(conflicts) };
+    }
     console.error(`Поездка #${tripId}: не удалось закрыть`, closeError);
     return { ok: false, reason: 'Не получилось сохранить. Попробуйте ещё раз.' };
   }

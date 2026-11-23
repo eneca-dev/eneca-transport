@@ -138,12 +138,22 @@ export function ReceptionScreen() {
                         : ` · одометр ${trip.odometerEndKm.toLocaleString('ru-RU')} км`}
                     </span>
                   </p>
+                  {/* Занятый интервал считается от фактического возврата, и
+                      поздний возврат может упереться в бронь, заведённую, пока
+                      машину ждали. Причина нужна до нажатия: иначе кнопка
+                      выглядит рабочей, а отказ приходит ошибкой. */}
+                  {trip.blockedBy !== null && (
+                    <p className="mt-0.5 text-sm text-warn-fg">
+                      Принять нельзя: занято по {trip.blockedBy}. Перенесите или отмените эту
+                      заявку.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => run((token) => acceptTripKeys(token, trip.id))}
-                    disabled={pending || trip.odometerEndKm === null}
+                    disabled={pending || trip.odometerEndKm === null || trip.blockedBy !== null}
                     className={BUTTON_PRIMARY_SM}
                     title={
                       trip.odometerEndKm === null ? 'Сначала нужно показание одометра' : undefined
@@ -242,7 +252,9 @@ export function ReceptionScreen() {
 
           <p className="mt-6 text-xs text-fg-soft">
             «Принять» становится доступным, когда автор или водитель передал показание одометра.
-            Досрочный возврат принимается так же — ждать планового времени не нужно.
+            Досрочный возврат принимается так же — ждать планового времени не нужно. У
+            просроченной поездки машина занята до момента сдачи, поэтому принять её нельзя, пока на
+            это время есть другая бронь.
           </p>
         </>
       )}

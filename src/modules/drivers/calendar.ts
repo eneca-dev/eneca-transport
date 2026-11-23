@@ -16,6 +16,7 @@ import {
   DAY_MARK_LABEL,
   DAY_PATTERN,
   dayMarks,
+  dayRows,
   minskDay,
   minskMonth,
   monthGrid,
@@ -69,9 +70,6 @@ function statusOf(trip: CalendarTripRow): DriverDayTrip['status'] {
   }
   if (trip.driver_confirmation === 'declined') {
     return 'вы отказались';
-  }
-  if (trip.driver_confirmation === 'timeout') {
-    return 'подтверждение просрочено';
   }
   if (trip.driver_confirmation === 'confirmed') {
     return 'подтверждена';
@@ -179,8 +177,21 @@ export async function driverMonthReply(driverId: string, month: string): Promise
   };
 }
 
-/** Один день: поездки этого дня, отметка об отсутствии и кнопка назад. */
-async function driverDayReply(driverId: string, date: string): Promise<BotReply> {
+/**
+ * Ждут ли от водителя ответа по этой поездке.
+ *
+ * Молчание дольше 15 минут ответа не отменяет: подтвердить можно, пока
+ * рецепция не выдала ключи.
+ */
+function awaitsAnswer(trip: CalendarTripRow): boolean {
+  return (
+    ['booked', 'docs_ready'].includes(trip.status) &&
+    (trip.driver_confirmation === 'pending' || trip.driver_confirmation === 'timeout')
+  );
+}
+
+/** Один день: поездки этого дня, отметка об отсутствии и кнопки. */
+export async function driverDayReply(driverId: string, date: string): Promise<BotReply> {
   const { from, to } = minskDay(date);
 
   const [trips, away] = await Promise.all([
@@ -188,13 +199,18 @@ async function driverDayReply(driverId: string, date: string): Promise<BotReply>
     driverUnavailability(driverId, date, date),
   ]);
 
+  const rows = dayRows(
+    date,
+    trips.map((trip) => ({ tripId: trip.id, awaitsAnswer: awaitsAnswer(trip) })),
+  );
+
   return {
     text: messageDriverDay(
       formatDateLabel(date),
       trips.map(toDayTrip),
       away.length > 0 ? away.map(awayLine).join('\n') : null,
     ),
-    rows: [[{ text: '‹ Календарь', data: `cal:m:${date.slice(0, 7)}` }]],
+    rows,
   };
 }
 
