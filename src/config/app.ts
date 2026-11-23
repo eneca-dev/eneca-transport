@@ -28,23 +28,47 @@ export const ENTRA_CLIENT_ID = process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID ?? '';
 export const APP_ID_URI = `api://${APP_DOMAIN}/botid-${ENTRA_CLIENT_ID}`;
 
 /**
- * Ссылка на поездку внутри Teams — для кнопки «Открыть» в карточках бота.
+ * Ссылки из чата на вкладку.
  *
  * Открывается не браузер, а вкладка приложения: `entityId` совпадает с тем,
- * что объявлен в манифесте (`trips`), а номер поездки передаётся в `context`
- * и читается вкладкой из `app.getContext().page.subPageId`.
+ * что объявлен в манифесте (`trips`), а куда именно идти — передаётся в
+ * `context` и читается вкладкой из `app.getContext().page.subPageId`.
+ *
+ * Бот не может сам переключить человеку вкладку: в Teams такого нет. Он может
+ * только дать ссылку, по которой человек нажмёт сам.
  */
-/** Ссылка на саму вкладку, без конкретной поездки. */
-export function screenDeepLink(): string {
-  return `https://teams.microsoft.com/l/entity/${ENTRA_CLIENT_ID}/trips`;
+
+/**
+ * Экраны, на которые ведут ссылки из чата.
+ *
+ * Список закрытый намеренно: `subEntityId` приходит снаружи, и подставлять
+ * его в путь как есть нельзя.
+ */
+export const TAB_SCREENS = {
+  new: '/trips/new',
+  reception: '/reception',
+  documents: '/documents',
+  calendar: '/calendar',
+  history: '/history',
+  cars: '/cars',
+  drivers: '/drivers',
+} as const;
+
+export type TabScreen = keyof typeof TAB_SCREENS;
+
+function entityLink(context?: Record<string, string>): string {
+  const base = `https://teams.microsoft.com/l/entity/${ENTRA_CLIENT_ID}/trips`;
+  return context ? `${base}?context=${encodeURIComponent(JSON.stringify(context))}` : base;
 }
 
+/** Вкладка: её начало или сразу нужный экран. */
+export function screenDeepLink(screen?: TabScreen): string {
+  return screen ? entityLink({ subEntityId: `screen-${screen}` }) : entityLink();
+}
+
+/** Карточка конкретной поездки. */
 export function tripDeepLink(tripId: number): string {
-  const context = encodeURIComponent(JSON.stringify({ subEntityId: `trip-${tripId}` }));
-  return (
-    `https://teams.microsoft.com/l/entity/${ENTRA_CLIENT_ID}/trips` +
-    `?context=${context}`
-  );
+  return entityLink({ subEntityId: `trip-${tripId}` });
 }
 /** Буфер на подготовку автомобиля между поездками. Дублируется в fn_booking_buffer(). */
 export const BOOKING_BUFFER_MINUTES = 10;

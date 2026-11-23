@@ -1,6 +1,8 @@
 import { screenDeepLink, tripDeepLink } from '@/config/app';
 import { formatPeriod } from '@/lib/datetime';
 
+import type { TabScreen } from '@/config/app';
+
 /**
  * Адаптивные карточки Teams-бота (К1–К16).
  *
@@ -32,6 +34,8 @@ interface CardOptions {
 
 export type CardAction =
   | { kind: 'open'; title: string; tripId: number }
+  /** Вкладка целиком или её экран: `screen` не задан — начало вкладки. */
+  | { kind: 'screen'; title: string; screen?: TabScreen }
   | {
       kind: 'submit';
       title: string;
@@ -45,6 +49,13 @@ function toAction(action: CardAction): Record<string, unknown> {
       type: 'Action.OpenUrl',
       title: action.title,
       url: tripDeepLink(action.tripId),
+    };
+  }
+  if (action.kind === 'screen') {
+    return {
+      type: 'Action.OpenUrl',
+      title: action.title,
+      url: screenDeepLink(action.screen),
     };
   }
   return {
@@ -338,7 +349,7 @@ export function cardK6(counts: { issues: number; returns: number; overdue: numbe
       {
         type: 'Action.OpenUrl',
         title: 'Открыть экран рецепции',
-        url: screenDeepLink(),
+        url: screenDeepLink('reception'),
       },
     ],
   };
@@ -569,6 +580,62 @@ export function cardK16(trip: TripCardData, driverState: string): unknown {
       },
       { kind: 'open', title: 'Открыть', tripId: trip.id },
     ],
+  });
+}
+
+/**
+ * Приветствие при установке и ответ на любое сообщение человека.
+ *
+ * Бот не ведёт переписку: заявки оформляются во вкладке. Но отвечать на
+ * «здравствуйте» стеной текста «идите во вкладку» — значит оставить человека
+ * искать её самому. Поэтому ответ — кнопки, которые открывают вкладку сразу
+ * на нужном экране.
+ *
+ * Переключить вкладку за человека бот не может: в Teams такого нет. Нажатие
+ * на кнопку — единственный способ его туда перенести.
+ *
+ * Кнопок по ролям: у человека без роли две, у АХО пять. Больше шести Teams
+ * сворачивает в «…», поэтому разделы, до которых и так есть меню внутри
+ * вкладки, здесь не повторяются.
+ */
+export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): unknown {
+  const has = (role: string): boolean => roles.includes(role);
+
+  const actions: CardAction[] = [
+    { kind: 'screen', title: 'Новая поездка', screen: 'new' },
+    { kind: 'screen', title: 'Мои поездки' },
+  ];
+
+  if (has('reception') || has('aho')) {
+    actions.push({ kind: 'screen', title: 'Рецепция', screen: 'reception' });
+  }
+  if (has('finance') || has('aho')) {
+    actions.push({ kind: 'screen', title: 'Документы', screen: 'documents' });
+  }
+  if (has('aho')) {
+    actions.push({ kind: 'screen', title: 'Календарь', screen: 'calendar' });
+  }
+
+  const note = [
+    'Сюда приходят бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
+    '',
+    'Заявки оформляются во вкладке — кнопки ниже открывают её сразу на нужном экране.',
+  ];
+
+  // Справочник сотрудников обновляется раз в сутки. Пока человека в нём нет,
+  // карточки до него не дойдут, и знать об этом лучше сразу.
+  if (!knownEmployee) {
+    note.push(
+      '',
+      'Вас пока нет в справочнике сотрудников — он обновляется раз в сутки. Если карточки не приходят и завтра, напишите в АХО.',
+    );
+  }
+
+  return buildCard({
+    title: 'Командировки и служебные машины',
+    facts: [],
+    note: note.join('\n'),
+    actions,
   });
 }
 

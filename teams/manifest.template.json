@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
   "manifestVersion": "1.17",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "id": "{{CLIENT_ID}}",
   "developer": {
     "name": "ЭНЭКА",
@@ -35,7 +35,16 @@
       "botId": "{{BOT_ID}}",
       "scopes": ["personal"],
       "supportsFiles": false,
-      "isNotificationOnly": false
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal"],
+          "commands": [
+            { "title": "Новая поездка", "description": "Открыть форму заявки на командировку" },
+            { "title": "Мои поездки", "description": "Свои поездки и их состояние" }
+          ]
+        }
+      ]
     }
   ],
   "permissions": ["identity"],

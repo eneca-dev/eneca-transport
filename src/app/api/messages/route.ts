@@ -1,5 +1,6 @@
-import { cardDone } from '@/lib/bots/cards';
+import { cardDone, cardWelcome } from '@/lib/bots/cards';
 import { getTeamsAdapter } from '@/lib/bots/teamsAdapter';
+import { findEmployeeByOid } from '@/modules/employees/queries';
 import { rememberConversation } from '@/modules/employees/teamsConversation';
 import { handleCardAction } from '@/modules/trips/cardActions';
 
@@ -50,8 +51,31 @@ export async function POST(request: Request) {
         (member) => member.id === context.activity.recipient?.id,
       );
 
+      // Карточка с кнопками: и при установке, и в ответ на любое сообщение.
+      const sendWelcome = async () => {
+        const oid = from?.aadObjectId ?? null;
+        const employee = oid ? await findEmployeeByOid(oid) : null;
+
+        // Предупреждение «вас нет в справочнике» уместно только когда мы
+        // действительно искали. Без oid это была бы ложная тревога, а Teams
+        // присылает его не всегда.
+        const known = employee !== null || oid === null;
+
+        await context.sendActivity({
+          attachments: [
+            {
+              contentType: 'application/vnd.microsoft.card.adaptive',
+              content: cardWelcome(known, employee?.roles ?? []),
+            },
+          ],
+        });
+      };
+
       if (type === 'conversationUpdate' && botAdded) {
         await remember();
+        // Установка — единственный момент, когда человек точно смотрит в этот
+        // чат. Молчать в него значит оставить его искать вкладку самому.
+        await sendWelcome();
         return;
       }
 
@@ -94,17 +118,10 @@ export async function POST(request: Request) {
       }
 
       if (context.activity.text) {
-        // Бот не ведёт переписку: заявки оформляются во вкладке. Поэтому
-        // ответ объясняет, куда идти, а не предлагает продолжить разговор.
-        await context.sendActivity(
-          [
-            'Я сообщаю о командировках: бронь, документы, ключи, возврат.',
-            '',
-            'Оформить заявку и посмотреть свои поездки можно во вкладке «Мои поездки» — она рядом с этим чатом, вверху.',
-            '',
-            'Если что-то не получается, напишите в АХО.',
-          ].join('\n'),
-        );
+        // Бот не ведёт переписку: заявки оформляются во вкладке. Но объяснять
+        // это текстом значит оставить человека искать вкладку самому, поэтому
+        // ответ — кнопки, которые её открывают.
+        await sendWelcome();
       }
     });
   } catch (error) {

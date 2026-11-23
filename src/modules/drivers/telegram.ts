@@ -116,11 +116,16 @@ export async function replyToDriver(sender: TelegramSender, text: string): Promi
   const driver = sender.isPrivate ? await driverByChat(sender.chatId) : null;
 
   if (driver) {
-    if (message === 'Мои поездки') {
+    // Регистр не важен: кнопка присылает «Календарь», но водитель может и
+    // набрать «календарь» руками — отвечать на это примечанием к возврату
+    // было бы непонятно.
+    const command = message.toLowerCase();
+
+    if (command === 'мои поездки') {
       return listDriverTrips(driver.id);
     }
 
-    if (message === 'Календарь') {
+    if (command === 'календарь' || command === 'график') {
       return driverMonthReply(driver.id, currentMinskMonth());
     }
 

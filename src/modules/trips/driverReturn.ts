@@ -322,7 +322,10 @@ export async function listDriverTrips(driverId: string): Promise<BotReply> {
   const inTrip = trips.find((trip) => trip.status === 'in_trip');
 
   if (!inTrip) {
-    return { text: messageMyTrips(lines) };
+    // Заодно обновляем постоянные кнопки под полем ввода: Telegram помнит
+    // последние присланные, и у водителя, подключённого до появления
+    // календаря, второй кнопки иначе не появится.
+    return { text: messageMyTrips(lines), withKeyboard: true };
   }
 
   // Из этого же сообщения водитель начинает возврат: отдельную команду искать
