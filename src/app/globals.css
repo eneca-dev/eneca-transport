@@ -36,6 +36,12 @@
   --bad: #fdf3f4;
   --bad-fg: #b10e1c;
   --bad-line: #eeacb2;
+  /* Метки занятости в календаре: насыщенные, потому что это сплошная заливка
+     полосы, а не фон под текстом. Тона --ok/--warn/--bad для этого не годятся:
+     они светлые подложки. */
+  --mark-busy: #5b5fc7;
+  --mark-repair: #c8a200;
+  --mark-away: #c4314b;
 }
 
 /* Классы Tailwind ссылаются на переменные выше, а не на их значения, поэтому
@@ -59,6 +65,9 @@
   --color-bad: var(--bad);
   --color-bad-fg: var(--bad-fg);
   --color-bad-line: var(--bad-line);
+  --color-mark-busy: var(--mark-busy);
+  --color-mark-repair: var(--mark-repair);
+  --color-mark-away: var(--mark-away);
 
   /* Шрифт Teams. Берём системный, а не из сети: вкладка грузится в iframe,
      и лишний запрос к шрифтам задерживает первый кадр. */
@@ -92,6 +101,9 @@
     --bad: #4b1113;
     --bad-fg: #f1707b;
     --bad-line: #6e292c;
+    --mark-busy: #7579eb;
+    --mark-repair: #e0c060;
+    --mark-away: #f1707b;
   }
 }
 
@@ -116,6 +128,9 @@
   --bad: #4b1113;
   --bad-fg: #f1707b;
   --bad-line: #6e292c;
+  --mark-busy: #7579eb;
+  --mark-repair: #e0c060;
+  --mark-away: #f1707b;
 }
 
 /* Высокая контрастность: чёрный фон, белые границы, жёлтый акцент — так эта
@@ -141,6 +156,11 @@
   --bad: #000000;
   --bad-fg: #ff8c8c;
   --bad-line: #ffffff;
+  /* В контрастной теме полутонов нет, а три метки различать всё равно надо:
+     жёлтый, голубой и розовый — те цвета, которыми это делает сам Teams. */
+  --mark-busy: #ffff01;
+  --mark-repair: #1aebff;
+  --mark-away: #ff8c8c;
 }
 
 body {

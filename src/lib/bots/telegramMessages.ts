@@ -50,17 +50,14 @@ export function messageT1(trip: AssignmentMessage): string {
 }
 
 /**
- * Т2: водитель не ответил за 15 минут.
+ * Т1 без последней строки с просьбой подтвердить.
  *
- * Текст из требований почти дословно. Упрёка в нём нет намеренно: водитель мог
- * быть за рулём, и виноватым себя чувствовать не должен.
+ * Нужен там, где отвечать уже нечего: водитель ответил сам или за него
+ * подтвердила АХО. Сами данные поездки при этом остаются — водитель к ним
+ * возвращается, чтобы вспомнить время и машину.
  */
-export function messageT2(tripId: number): string {
-  return [
-    `Поездка #${tripId}: подтверждение не получено.`,
-    '',
-    'АХО уведомлено для решения вопроса о замене водителя.',
-  ].join('\n');
+function assignmentFacts(trip: AssignmentMessage): string {
+  return messageT1(trip).split('\n').slice(0, -2).join('\n');
 }
 
 /** Чем заменить Т1 после ответа: кнопки убираются, выбор остаётся в тексте. */
@@ -69,7 +66,23 @@ export function messageT1Answered(trip: AssignmentMessage, confirmed: boolean): 
     ? 'Вы подтвердили поездку. Напомню накануне выезда.'
     : 'Вы отказались от поездки. АХО уведомлено и назначит замену.';
 
-  return [messageT1(trip).split('\n').slice(0, -2).join('\n'), '', tail].join('\n');
+  return [assignmentFacts(trip), '', tail].join('\n');
+}
+
+/**
+ * АХО подтвердила поездку за водителя.
+ *
+ * Данные поездки повторяются полностью: водитель мог договориться по телефону и
+ * сообщение с назначением не читать вовсе, а ехать ему всё равно по этим
+ * времени, маршруту и машине.
+ */
+export function messageDriverConfirmedByAho(trip: AssignmentMessage): string {
+  return [
+    assignmentFacts(trip),
+    '',
+    'АХО подтвердила эту поездку за вас — отвечать в боте не нужно.',
+    'Если ехать не получится, сообщите в АХО.',
+  ].join('\n');
 }
 
 /**
@@ -180,13 +193,21 @@ export interface DriverDayTrip extends DriverTripLine {
  *
  * Счётчик написан как «Поездок: 3», а не «3 поездки»: так не нужно
  * согласовывать окончание, и при одной поездке строка не выглядит ошибкой.
+ *
+ * В подпись попадают только те кружки, которые в этом месяце действительно
+ * встретились. Полный список из четырёх строк там, где помечен один день,
+ * читать перестают.
  */
-export function messageDriverMonth(monthLabel: string, tripCount: number): string {
-  if (tripCount === 0) {
+export function messageDriverMonth(
+  monthLabel: string,
+  tripCount: number,
+  legend: string[],
+): string {
+  if (tripCount === 0 && legend.length === 0) {
     return [
       `Ваш график на ${monthLabel}.`,
       '',
-      'В этом месяце за вами поездок нет. Стрелками можно посмотреть другие месяцы.',
+      'В этом месяце за вами ничего нет. Стрелками можно посмотреть другие месяцы.',
     ].join('\n');
   }
 
@@ -194,14 +215,20 @@ export function messageDriverMonth(monthLabel: string, tripCount: number): strin
     `Ваш график на ${monthLabel}.`,
     `Поездок: ${tripCount}.`,
     '',
-    'Дни с поездками — в квадратных скобках. Нажмите день, чтобы посмотреть.',
+    legend.join('   '),
+    '',
+    'Нажмите помеченный день, чтобы посмотреть.',
   ].join('\n');
 }
 
 /** Календарь водителя: один день. */
-export function messageDriverDay(dayLabel: string, trips: DriverDayTrip[]): string {
+export function messageDriverDay(
+  dayLabel: string,
+  trips: DriverDayTrip[],
+  away: string | null = null,
+): string {
   if (trips.length === 0) {
-    return `${dayLabel} — поездок нет.`;
+    return away ? `${dayLabel}\n\n${away}` : `${dayLabel} — поездок нет.`;
   }
 
   const blocks = trips.map((trip) => {
@@ -218,7 +245,11 @@ export function messageDriverDay(dayLabel: string, trips: DriverDayTrip[]): stri
     return lines.join('\n');
   });
 
-  return [dayLabel, '', blocks.join('\n\n')].join('\n');
+  // Отметка об отсутствии идёт первой: если она совпала с поездкой, это
+  // нестыковка, и водитель должен увидеть её раньше, чем маршрут.
+  const head = away ? [dayLabel, '', away] : [dayLabel];
+
+  return [...head, '', blocks.join('\n\n')].join('\n');
 }
 
 /** Нажали день без поездок: всплывающая подсказка, сообщение не меняется. */

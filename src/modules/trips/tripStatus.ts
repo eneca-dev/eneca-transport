@@ -113,16 +113,36 @@ export function tripState(
   // Дальше поездка ещё не выехала: booked или docs_ready.
 
   if (trip.needsDriver) {
-    if (trip.driverConfirmation === 'declined' || trip.driverConfirmation === 'timeout') {
-      const what = trip.driverConfirmation === 'declined' ? 'отказался' : 'не подтвердил';
+    if (trip.driverConfirmation === 'declined') {
       return {
         label: 'Нужен другой водитель',
         tone: 'bad',
         waitingFor: viewer.isAho
-          ? `назначить водителя: прежний ${what}`
+          ? 'назначить водителя: прежний отказался'
           : viewer.isAuthor
             ? 'решить: ехать самому или отменить'
             : null,
+      };
+    }
+
+    /**
+     * Молчание отделено от отказа намеренно.
+     *
+     * Отказ окончателен — нужен другой водитель. Молчание чаще всего значит,
+     * что водитель за рулём: он ещё может подтвердить сам, а АХО — подтвердить
+     * за него после звонка. Называть это «нужен другой водитель» значит
+     * толкать к замене там, где достаточно позвонить.
+     */
+    if (trip.driverConfirmation === 'timeout') {
+      const who = trip.driverName ? `: ${trip.driverName}` : '';
+      return {
+        label: `Нет ответа от водителя${who}`,
+        tone: 'bad',
+        // Автора здесь ни о чём не просят: вопрос решает АХО, а если к выезду
+        // он не решён — автору приходит К16 с выбором.
+        waitingFor: viewer.isAho
+          ? 'позвонить водителю — подтвердить за него или назначить другого'
+          : null,
       };
     }
 
@@ -174,7 +194,7 @@ export const CONFIRMATION_LABEL: Record<DriverConfirmation, string> = {
   pending: 'ожидается подтверждение',
   confirmed: 'подтверждён',
   declined: 'отказался',
-  timeout: 'не подтвердил',
+  timeout: 'не ответил',
 };
 
 export const CONFIRMATION_TONE: Record<DriverConfirmation, StatusTone> = {

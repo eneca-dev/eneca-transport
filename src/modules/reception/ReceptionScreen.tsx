@@ -130,11 +130,13 @@ export function ReceptionScreen() {
                   </p>
                   <p className="mt-0.5 text-sm text-bad-fg">
                     Возврат был {formatMoment(new Date(trip.endsAt))} · ключи не сданы
-                    {trip.odometerEndKm !== null && (
-                      <span className="text-fg-soft">
-                        {' · '}одометр {trip.odometerEndKm.toLocaleString('ru-RU')} км
-                      </span>
-                    )}
+                    {/* Без показания «Принять» неактивна. Причину надо писать
+                        строкой: подсказка при наведении в Teams не видна. */}
+                    <span className="text-fg-soft">
+                      {trip.odometerEndKm === null
+                        ? ` · одометр ждём от ${trip.needsDriver && trip.driverName ? trip.driverName : trip.authorName}`
+                        : ` · одометр ${trip.odometerEndKm.toLocaleString('ru-RU')} км`}
+                    </span>
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">

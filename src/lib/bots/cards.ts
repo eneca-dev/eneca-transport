@@ -651,18 +651,38 @@ export function cardDone(title: string, facts: CardFact[], result: string): unkn
 /**
  * К14: АХО — водитель отказался или не подтвердил за 15 минут.
  *
- * Кнопка открывает карточку поездки, а не выбирает водителя на месте: список
- * свободных водителей в адаптивной карточке нечитаем на телефоне. Бронь
- * автомобиля сохраняется, об этом сказано прямо в карточке, чтобы АХО не
- * бросилась бронировать заново.
+ * Молчание и отказ — разные случаи, и решения у них разные. Отказ окончателен:
+ * нужен другой водитель. Молчание чаще всего значит, что водитель за рулём, и
+ * АХО решает его звонком — поэтому у молчания есть кнопка «Подтвердить за
+ * водителя», а у отказа её нет.
+ *
+ * Выбор водителя на месте карточка не предлагает: список свободных водителей
+ * в адаптивной карточке нечитаем на телефоне. Бронь автомобиля сохраняется, об
+ * этом сказано прямо в карточке, чтобы АХО не бросилась бронировать заново.
  */
 export function cardK14(
   trip: TripCardData,
   driverName: string,
   reason: 'declined' | 'timeout',
 ): unknown {
+  const actions: CardAction[] = [];
+
+  if (reason === 'timeout') {
+    actions.push({
+      kind: 'submit',
+      title: 'Подтвердить за водителя',
+      data: { action: 'driver_confirm_aho', tripId: trip.id },
+      style: 'positive',
+    });
+  }
+
+  actions.push({ kind: 'open', title: 'Назначить другого', tripId: trip.id });
+
   return buildCard({
-    title: `Поездка #${trip.id}: водитель не подтвердил`,
+    title:
+      reason === 'declined'
+        ? `Поездка #${trip.id}: водитель отказался`
+        : `Поездка #${trip.id}: от водителя нет ответа`,
     subtitle: `${period(trip)} · ${trip.route}`,
     facts: [
       { title: 'Водитель', value: driverName },
@@ -673,8 +693,32 @@ export function cardK14(
       { title: 'Автор заявки', value: trip.authorName },
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
     ],
-    note: 'Бронь автомобиля сохранена — нужно назначить другого водителя.',
-    actions: [{ kind: 'open', title: 'Назначить водителя', tripId: trip.id }],
+    note:
+      reason === 'declined'
+        ? 'Бронь автомобиля сохранена — нужно назначить другого водителя.'
+        : 'Бронь автомобиля сохранена. Водитель всё ещё может подтвердить сам — ' +
+          'кнопки у него в боте работают.',
+    actions,
+  });
+}
+
+/**
+ * АХО: водитель подтвердил сам, уже после 15 минут.
+ *
+ * Отправляется только тем, кто получил К14: иначе АХО ищет замену человеку,
+ * который тем временем согласился ехать.
+ */
+export function cardDriverLateConfirm(trip: TripCardData, driverName: string): unknown {
+  return buildCard({
+    title: `Поездка #${trip.id}: водитель подтвердил`,
+    subtitle: `${period(trip)} · ${trip.route}`,
+    facts: [
+      { title: 'Водитель', value: driverName },
+      { title: 'Что случилось', value: 'ответил позже 15 минут' },
+      { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
+    ],
+    note: 'Замена больше не нужна.',
+    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
   });
 }
 

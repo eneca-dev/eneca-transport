@@ -4,7 +4,11 @@ import { getDb } from '@/config/supabase';
 import { formatPeriod } from '@/lib/datetime';
 import { notifyFinanceNewRequest } from '@/modules/documents/notify';
 
-import { notifyDriverAssigned, notifyDriverUnassigned } from './notifyDriver';
+import {
+  notifyDriverAssigned,
+  notifyDriverConfirmedByAho,
+  notifyDriverUnassigned,
+} from './notifyDriver';
 import { notifyTripChanged } from './notifyChange';
 
 /**
@@ -338,6 +342,10 @@ export async function confirmForDriver(
     payload: { driver: await driverName(trip.driver_id) },
     actor_employee: employeeId,
   });
+
+  // Водитель должен узнать, что поездка закреплена за ним: договорённость по
+  // телефону в боте не видна, а готовиться к выезду ему.
+  await notifyDriverConfirmedByAho(tripId);
 
   return { ok: true };
 }

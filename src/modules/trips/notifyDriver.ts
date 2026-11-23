@@ -1,10 +1,14 @@
 import 'server-only';
 
-import { cardK14, cardK16 } from '@/lib/bots/cards';
+import { cardDriverLateConfirm, cardK14, cardK16 } from '@/lib/bots/cards';
 import { sendCard } from '@/lib/bots/teamsSender';
 import { answerCallback, closeTelegramButtons, sendTelegramMessage } from '@/lib/bots/telegram';
 import { acceptCondition, acceptNote, askReturnStep } from './driverReturn';
-import { messageT1, messageT1Answered, messageT2 } from '@/lib/bots/telegramMessages';
+import {
+  messageDriverConfirmedByAho,
+  messageT1,
+  messageT1Answered,
+} from '@/lib/bots/telegramMessages';
 import { getDb } from '@/config/supabase';
 import { handleCalendarCallback, isCalendarCallback } from '@/modules/drivers/calendar';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
@@ -26,6 +30,8 @@ import type { AssignmentMessage } from '@/lib/bots/telegramMessages';
 
 interface TripRow {
   id: number;
+  status: string;
+  keys_issued_at: string | null;
   starts_at: string;
   ends_at: string;
   route: string;
@@ -41,8 +47,8 @@ interface TripRow {
 }
 
 const TRIP_SELECT =
-  'id, starts_at, ends_at, route, contract, purpose, author_id, driver_id, ' +
-  'driver_confirmation, driver_assigned_at, ' +
+  'id, status, keys_issued_at, starts_at, ends_at, route, contract, purpose, ' +
+  'author_id, driver_id, driver_confirmation, driver_assigned_at, ' +
   'cars(plate, model), drivers(id, full_name, telegram_chat_id), ' +
   'employees!trips_author_id_fkey(entra_oid, display_name)';
 
@@ -156,7 +162,14 @@ export async function notifyDriverAssigned(tripId: number): Promise<void> {
 }
 
 /**
- * Т2 водителю и К14 в АХО, когда 15 минут вышли без ответа.
+ * К14 в АХО, когда 15 минут вышли без ответа.
+ *
+ * Водителю не отправляется ничего. Требования предусматривают здесь Т2
+ * «подтверждение не получено», но 15 минут — просьба, а не обязанность: чаще
+ * всего водитель в этот момент за рулём. Сообщение о том, что его молчание
+ * передали в АХО, торопит и выглядит упрёком, а решает вопрос всё равно
+ * звонок. Кнопки Т1 у водителя при этом остаются рабочими, и подтвердить он
+ * может позже.
  *
  * Статус к этому моменту уже переведён в `timeout` планировщиком — здесь только
  * сообщения.
@@ -168,23 +181,37 @@ export async function notifyDriverTimeout(tripId: number): Promise<void> {
     return;
   }
 
-  const driver = trip.drivers;
-  const entry = {
-    template: 'T2',
-    channel: 'telegram' as const,
-    tripId,
-    recipient: { driverId: driver.id },
-    dedupeKey: `T2:trip:${tripId}:driver:${driver.id}:${trip.driver_assigned_at ?? 'first'}`,
-  };
+  await notifyAhoDriverMissing(trip, trip.drivers.full_name, 'timeout');
+}
 
-  if (driver.telegram_chat_id === null) {
-    await skipDelivery(entry, 'У водителя не подключён Telegram');
-  } else {
-    const chatId = driver.telegram_chat_id;
-    await deliverOnce(entry, () => sendTelegramMessage(chatId, messageT2(tripId)));
+interface AhoPerson {
+  id: string;
+  entra_oid: string;
+  display_name: string;
+  is_active: boolean;
+}
+
+/**
+ * Кому из АХО уходят карточки о водителях.
+ *
+ * Роль, а не конкретный человек: в требованиях К14 адресована Дарье, но
+ * сотрудников АХО может быть несколько, и назначать замену может любой.
+ */
+async function ahoRecipients(purpose: string): Promise<AhoPerson[]> {
+  const { data, error } = await getDb()
+    .from('employee_roles')
+    .select('employees!employee_roles_employee_id_fkey(id, entra_oid, display_name, is_active)')
+    .eq('role', 'aho')
+    .returns<{ employees: AhoPerson | null }[]>();
+
+  if (error) {
+    console.error(`Не удалось найти сотрудников АХО для ${purpose}`, error);
+    return [];
   }
 
-  await notifyAhoDriverMissing(trip, driver.full_name, 'timeout');
+  return (data ?? [])
+    .map((row) => row.employees)
+    .filter((person): person is AhoPerson => person !== null && person.is_active);
 }
 
 /** К14: сообщить АХО, что водителя нет. */
@@ -193,28 +220,8 @@ async function notifyAhoDriverMissing(
   driverName: string,
   reason: 'declined' | 'timeout',
 ): Promise<void> {
-  const { data: aho, error } = await getDb()
-    .from('employee_roles')
-    .select('employees!employee_roles_employee_id_fkey(id, entra_oid, display_name, is_active)')
-    .eq('role', 'aho')
-    .returns<
-      {
-        employees: { id: string; entra_oid: string; display_name: string; is_active: boolean } | null;
-      }[]
-    >();
-
-  if (error) {
-    console.error('Не удалось найти сотрудников АХО для К14', error);
-    return;
-  }
-
   const card = cardK14(toCardData(trip, driverName), driverName, reason);
-
-  // Роль, а не конкретный человек: в требованиях К14 адресована Дарье, но
-  // сотрудников АХО может быть несколько, и назначать замену может любой.
-  const recipients = (aho ?? [])
-    .map((row) => row.employees)
-    .filter((person): person is NonNullable<typeof person> => person !== null && person.is_active);
+  const recipients = await ahoRecipients('К14');
 
   await Promise.all(
     recipients.map((person) =>
@@ -232,6 +239,82 @@ async function notifyAhoDriverMissing(
       ),
     ),
   );
+}
+
+/**
+ * АХО: водитель ответил позже 15 минут и подтвердил сам.
+ *
+ * Без этого К14 остаётся последним, что знает АХО, и она ищет замену человеку,
+ * который тем временем согласился ехать.
+ *
+ * В ключ входит момент назначения, а не время ответа: на одно назначение такая
+ * карточка нужна один раз, сколько бы раз водитель ни передумал.
+ */
+async function notifyAhoDriverLateConfirm(trip: TripRow, driverName: string): Promise<void> {
+  const card = cardDriverLateConfirm(toCardData(trip, driverName), driverName);
+  const recipients = await ahoRecipients('подтверждения водителя');
+
+  await Promise.all(
+    recipients.map((person) =>
+      deliverOnce(
+        {
+          template: 'K14_LATE',
+          channel: 'teams',
+          tripId: trip.id,
+          recipient: { employeeId: person.id },
+          dedupeKey:
+            `K14_LATE:trip:${trip.id}:${trip.driver_assigned_at ?? 'first'}` +
+            `:employee:${person.id}`,
+        },
+        () => sendCard(person.id, person.entra_oid, card),
+      ),
+    ),
+  );
+}
+
+/**
+ * Водителю: АХО подтвердила поездку за него.
+ *
+ * Водитель нередко соглашается голосом по телефону, а в бот не заходит. Он
+ * должен знать, что поездка за ним закреплена — иначе он ждёт, что назначат
+ * кого-то другого, и к выезду не готовится.
+ */
+export async function notifyDriverConfirmedByAho(tripId: number): Promise<void> {
+  try {
+    const trip = await loadTrip(tripId);
+
+    if (!trip?.drivers || !trip.driver_id) {
+      return;
+    }
+
+    const driver = trip.drivers;
+    const entry = {
+      template: 'T1_AHO',
+      channel: 'telegram' as const,
+      tripId,
+      recipient: { driverId: driver.id },
+      dedupeKey: `T1_AHO:trip:${tripId}:driver:${driver.id}:${trip.driver_assigned_at ?? 'first'}`,
+    };
+
+    if (driver.telegram_chat_id === null) {
+      await skipDelivery(entry, 'У водителя не подключён Telegram');
+      return;
+    }
+
+    const chatId = driver.telegram_chat_id;
+    const passengers = await loadPassengers(tripId);
+    const assignment = toAssignment(trip, passengers);
+
+    await deliverOnce(entry, () =>
+      sendTelegramMessage(chatId, messageDriverConfirmedByAho(assignment), {
+        withKeyboard: true,
+      }),
+    );
+  } catch (error) {
+    // Подтверждение уже записано, и это главное: в Э3 оно видно, а АХО с
+    // водителем только что говорила по телефону.
+    console.error(`Поездка #${tripId}: сообщение о подтверждении не ушло: ${sendFailureReason(error)}`);
+  }
 }
 
 /**
@@ -374,10 +457,26 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
     return;
   }
 
-  // Ответ принимается только пока ждут ответа: после замены водителя или
-  // решения автора по К16 кнопки прежнего назначения не работают.
-  if (trip.driver_confirmation !== 'pending') {
-    await answerCallback(callback.callbackId, 'На это назначение вы уже ответили.');
+  // Ключи выданы — спорить не о чем: машина либо в пути, либо поездка закрыта.
+  if (trip.keys_issued_at !== null || !['booked', 'docs_ready'].includes(trip.status)) {
+    await answerCallback(callback.callbackId, 'По этой поездке решения уже приняты.');
+    return;
+  }
+
+  /**
+   * Ответ принимается, пока ключи не выданы, — в том числе после 15 минут.
+   *
+   * 15 минут — просьба, а не срок, после которого водителя перестают слушать:
+   * он мог быть за рулём. Отсечь нужно только повтор того же самого ответа,
+   * иначе нажатие второй раз молча перезаписывает запись в журнале.
+   */
+  const previous = trip.driver_confirmation;
+
+  if (previous === (confirmed ? 'confirmed' : 'declined')) {
+    await answerCallback(
+      callback.callbackId,
+      confirmed ? 'Эта поездка уже подтверждена.' : 'Вы уже отказались, АХО знает.',
+    );
     return;
   }
 
@@ -407,6 +506,10 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
   // косметика, и её отказ не должен оставить АХО без уведомления.
   if (!confirmed) {
     await notifyAhoDriverMissing(trip, driver.full_name, 'declined');
+  } else if (previous !== 'pending') {
+    // Молчание или отказ АХО уже видела в К14. Теперь водитель едет сам, и об
+    // этом она должна узнать, пока не нашла замену.
+    await notifyAhoDriverLateConfirm(trip, driver.full_name);
   }
 
   const passengers = await loadPassengers(tripId);

@@ -106,7 +106,7 @@ export function DriverRow({
             Выдать код
           </button>
           <button type="button" onClick={onAddPeriod} disabled={pending} className={BUTTON_SECONDARY}>
-            Отметить период
+            Отметить отсутствие
           </button>
           <button type="button" onClick={onEdit} disabled={pending} className={BUTTON_SECONDARY}>
             Изменить

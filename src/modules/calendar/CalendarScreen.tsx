@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -10,15 +10,23 @@ import { APP_TIMEZONE } from '@/config/app';
 import { toMinskDate } from '@/modules/trips/booking';
 
 import { loadCalendarRange } from './actions';
+import { isWeekend, toLanes } from './spans';
 
-import type { CalendarCell, CalendarData, CalendarRow } from './queries';
+import type { CalendarData, CalendarRow, CalendarSpan, SpanKind } from './queries';
 
 /**
  * Э6 «Календарь».
  *
- * Таблица: строки — машины и водители, столбцы — дни. Неделя по умолчанию:
- * месяц на узком экране не читается, а АХО смотрит календарь, чтобы понять,
- * что свободно на ближайшие дни.
+ * Занятость показана полосами: многодневная поездка или ремонт — одна полоса
+ * через все свои дни, а не подпись, повторённая в каждой клетке. Что это
+ * такое, говорит цвет; подробности — в подсказке при наведении и по нажатию.
+ *
+ * Подписей в полосах нет намеренно. Колонка дня шириной в два символа не
+ * вмещает ни «ремонт», ни «#127», зато слово растягивает колонку и месяц
+ * перестаёт влезать на экран.
+ *
+ * Неделя по умолчанию: АХО смотрит календарь, чтобы понять, что свободно на
+ * ближайшие дни.
  */
 
 type Span = 'week' | 'month';
@@ -33,6 +41,18 @@ const monthTitle = new Intl.DateTimeFormat('ru-RU', {
   month: 'long',
   year: 'numeric',
 });
+
+const MARK_CLASS: Record<SpanKind, string> = {
+  trip: 'bg-mark-busy',
+  repair: 'bg-mark-repair',
+  away: 'bg-mark-away',
+};
+
+const MARK_LABEL: Record<SpanKind, string> = {
+  trip: 'поездка',
+  repair: 'ремонт',
+  away: 'водитель не работает',
+};
 
 /** Понедельник недели, в которую попадает дата. */
 function startOfWeek(date: Date): Date {
@@ -60,97 +80,102 @@ function rangeFor(span: Span, anchor: Date): { since: string; until: string } {
   return { since: `${month}-01`, until: toMinskDate(last) };
 }
 
-const CELL_CLASS: Record<CalendarCell['kind'], string> = {
-  trip: 'bg-brand text-brand-fg',
-  repair: 'bg-warn text-warn-fg',
-  away: 'bg-bad text-bad-fg',
-};
+interface Hint {
+  span: CalendarSpan;
+  x: number;
+  y: number;
+}
 
-function Cells({ cells }: { cells: CalendarCell[] | undefined }) {
-  if (!cells || cells.length === 0) {
-    return <span className="text-fg-soft">—</span>;
-  }
+interface BarsProps {
+  row: CalendarRow;
+  dates: string[];
+  columns: string;
+  onHint: (hint: Hint | null) => void;
+}
+
+function Bars({ row, dates, columns, onHint }: BarsProps) {
+  const router = useRouter();
+  const lanes = toLanes(row.spans);
+  const height = Math.max(lanes.length, 1);
+
+  const show = (span: CalendarSpan, element: HTMLElement) => {
+    const box = element.getBoundingClientRect();
+    onHint({ span, x: box.left + box.width / 2, y: box.top });
+  };
 
   return (
-    <span className="flex flex-wrap justify-center gap-0.5">
-      {cells.map((cell, index) => {
-        const content = (
-          <span
-            className={`inline-block rounded px-1.5 py-0.5 text-xs whitespace-nowrap ${CELL_CLASS[cell.kind]}`}
-          >
-            {cell.label}
-          </span>
-        );
+    <div
+      className="grid gap-y-1 border-t border-line py-1.5"
+      style={{ gridTemplateColumns: columns, gridAutoRows: '1.375rem' }}
+    >
+      <div
+        className="sticky left-0 z-10 flex flex-col justify-center bg-surface px-3"
+        style={{ gridColumn: 1, gridRow: `1 / span ${height}` }}
+      >
+        <span className="text-sm leading-tight font-medium">{row.title}</span>
+        {row.subtitle && (
+          <span className="font-mono text-xs leading-tight text-fg-soft">{row.subtitle}</span>
+        )}
+      </div>
 
-        return cell.tripId ? (
-          <Link key={`${cell.label}-${index}`} href={`/trips/${cell.tripId}`}>
-            {content}
-          </Link>
-        ) : (
-          <span key={`${cell.label}-${index}`}>{content}</span>
-        );
-      })}
-    </span>
+      {/* Подложка дней: выходные затенены, чтобы колонки читались без линий. */}
+      {dates.map((date, index) => (
+        <div
+          key={date}
+          aria-hidden
+          className={isWeekend(date) ? 'bg-surface-soft' : ''}
+          style={{ gridColumn: index + 2, gridRow: `1 / span ${height}` }}
+        />
+      ))}
+
+      {lanes.map((lane, laneIndex) =>
+        lane.map((span) => {
+          const start = dates.indexOf(span.from);
+          const length = dates.indexOf(span.to) - start + 1;
+
+          if (start < 0 || length < 1) {
+            return null;
+          }
+
+          const edges = [
+            span.openStart ? 'rounded-l-none' : 'rounded-l-sm',
+            span.openEnd ? 'rounded-r-none' : 'rounded-r-sm',
+          ].join(' ');
+
+          return (
+            <button
+              key={span.key}
+              type="button"
+              className={`mx-px h-full ${edges} ${MARK_CLASS[span.kind]} transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-fg focus-visible:outline-none`}
+              style={{ gridColumn: `${start + 2} / span ${length}`, gridRow: laneIndex + 1 }}
+              aria-label={`${MARK_LABEL[span.kind]}: ${span.title}, ${span.when}`}
+              onMouseEnter={(event) => show(span, event.currentTarget)}
+              onMouseLeave={() => onHint(null)}
+              onFocus={(event) => show(span, event.currentTarget)}
+              onBlur={() => onHint(null)}
+              onClick={(event) => {
+                // Поездка открывается, остальное только показывает подсказку —
+                // на телефоне наведения нет, и нажатие единственный способ её
+                // увидеть.
+                if (span.tripId) {
+                  router.push(`/trips/${span.tripId}`);
+                } else {
+                  show(span, event.currentTarget);
+                }
+              }}
+            />
+          );
+        }),
+      )}
+    </div>
   );
 }
 
-function Section({
-  title,
-  rows,
-  dates,
-  empty,
-}: {
-  title: string;
-  rows: CalendarRow[];
-  dates: string[];
-  empty: string;
-}) {
-  if (rows.length === 0) {
-    return (
-      <tbody>
-        <tr>
-          <th
-            colSpan={dates.length + 1}
-            className="border-t border-line bg-surface-soft px-3 py-1.5 text-left text-xs font-semibold tracking-wide text-fg-soft uppercase"
-          >
-            {title}
-          </th>
-        </tr>
-        <tr>
-          <td colSpan={dates.length + 1} className="px-3 py-3 text-sm text-fg-soft">
-            {empty}
-          </td>
-        </tr>
-      </tbody>
-    );
-  }
-
+function SectionTitle({ children }: { children: string }) {
   return (
-    <tbody>
-      <tr>
-        <th
-          colSpan={dates.length + 1}
-          className="border-t border-line bg-surface-soft px-3 py-1.5 text-left text-xs font-semibold tracking-wide text-fg-soft uppercase"
-        >
-          {title}
-        </th>
-      </tr>
-      {rows.map((row) => (
-        <tr key={row.id} className="border-t border-line">
-          <th scope="row" className="sticky left-0 bg-surface px-3 py-2 text-left font-normal">
-            <span className="block text-sm font-medium whitespace-nowrap">{row.title}</span>
-            {row.subtitle && (
-              <span className="block font-mono text-xs text-fg-soft">{row.subtitle}</span>
-            )}
-          </th>
-          {dates.map((date) => (
-            <td key={date} className="px-1.5 py-2 text-center">
-              <Cells cells={row.days[date]} />
-            </td>
-          ))}
-        </tr>
-      ))}
-    </tbody>
+    <p className="border-t border-line bg-surface-soft px-3 py-1.5 text-xs font-semibold tracking-wide text-fg-soft uppercase">
+      {children}
+    </p>
   );
 }
 
@@ -161,6 +186,7 @@ export function CalendarScreen() {
   const [anchor, setAnchor] = useState(() => new Date());
   const [data, setData] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<Hint | null>(null);
   const [pending, startTransition] = useTransition();
 
   const range = rangeFor(span, anchor);
@@ -188,6 +214,23 @@ export function CalendarScreen() {
     load(range.since, range.until);
   }, [load, range.since, range.until]);
 
+  // Подсказка стоит в координатах окна, поэтому при прокрутке страницы она
+  // отрывается от полосы. Проще убрать, чем пересчитывать.
+  useEffect(() => {
+    if (!hint) {
+      return;
+    }
+
+    const hide = () => setHint(null);
+    window.addEventListener('scroll', hide, true);
+    window.addEventListener('resize', hide);
+
+    return () => {
+      window.removeEventListener('scroll', hide, true);
+      window.removeEventListener('resize', hide);
+    };
+  }, [hint]);
+
   /** Шаг листания: неделя или месяц. */
   function step(direction: -1 | 1) {
     const next = new Date(anchor);
@@ -198,6 +241,10 @@ export function CalendarScreen() {
     }
     setAnchor(next);
   }
+
+  const dates = data?.dates ?? [];
+  const columns = `minmax(9rem, 11rem) repeat(${dates.length}, minmax(1.75rem, 1fr))`;
+  const today = toMinskDate(new Date());
 
   return (
     <section>
@@ -264,65 +311,111 @@ export function CalendarScreen() {
 
       {data && (
         <>
-          {/* Таблица прокручивается вбок: месяц в 31 столбец на экран не влезет,
-              а сжимать столбцы до нечитаемых — хуже прокрутки. */}
-          <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 bg-surface px-3 py-2 text-left text-xs font-semibold text-fg-soft">
-                    Машина, водитель
-                  </th>
-                  {data.dates.map((date) => {
-                    const day = new Date(`${date}T12:00:00+03:00`);
-                    const isToday = date === toMinskDate(new Date());
-                    return (
-                      <th
-                        key={date}
-                        className={`px-1.5 py-2 text-center text-xs font-medium whitespace-nowrap ${
-                          isToday ? 'text-brand-text' : 'text-fg-soft'
-                        }`}
-                      >
-                        <span className="block">{weekdayFormat.format(day)}</span>
-                        <span className="block">{date.slice(8)}</span>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
+          {/* Прокручивается вбок: месяц в 31 колонку на узкий экран не влезет,
+              а сжимать колонки до нечитаемых — хуже прокрутки. */}
+          <div
+            className="overflow-x-auto rounded-lg border border-line bg-surface"
+            onScroll={() => setHint(null)}
+          >
+            <div className="min-w-max">
+              <div className="grid" style={{ gridTemplateColumns: columns }}>
+                <div className="sticky left-0 z-10 bg-surface px-3 py-2 text-xs font-semibold text-fg-soft">
+                  Машина, водитель
+                </div>
+                {dates.map((date) => {
+                  const day = new Date(`${date}T12:00:00+03:00`);
+                  const isToday = date === today;
 
-              <Section
-                title="Машины"
-                rows={data.cars}
-                dates={data.dates}
-                empty="В справочнике нет машин."
-              />
-              <Section
-                title="Водители"
-                rows={data.drivers}
-                dates={data.dates}
-                empty="В справочнике нет водителей."
-              />
-            </table>
+                  return (
+                    <div
+                      key={date}
+                      className={`py-2 text-center text-xs whitespace-nowrap ${
+                        isToday
+                          ? 'font-semibold text-brand-text'
+                          : isWeekend(date)
+                            ? 'bg-surface-soft text-fg-soft'
+                            : 'text-fg-soft'
+                      }`}
+                    >
+                      <span className="block">{weekdayFormat.format(day)}</span>
+                      <span className="block tabular-nums">{date.slice(8)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <SectionTitle>Машины</SectionTitle>
+              {data.cars.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-fg-soft">В справочнике нет машин.</p>
+              ) : (
+                data.cars.map((row) => (
+                  <Bars
+                    key={row.id}
+                    row={row}
+                    dates={dates}
+                    columns={columns}
+                    onHint={setHint}
+                  />
+                ))
+              )}
+
+              <SectionTitle>Водители</SectionTitle>
+              {data.drivers.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-fg-soft">В справочнике нет водителей.</p>
+              ) : (
+                data.drivers.map((row) => (
+                  <Bars
+                    key={row.id}
+                    row={row}
+                    dates={dates}
+                    columns={columns}
+                    onHint={setHint}
+                  />
+                ))
+              )}
+            </div>
           </div>
 
-          <p className="mt-3 flex flex-wrap items-center gap-3 text-xs text-fg-soft">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-3 rounded bg-brand" aria-hidden />
-              поездка
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-3 rounded bg-warn" aria-hidden />
-              ремонт
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="inline-block size-3 rounded bg-bad" aria-hidden />
-              водитель недоступен
-            </span>
-            <span>Номер поездки открывается по нажатию.</span>
-          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-fg-soft">
+            {(Object.keys(MARK_LABEL) as SpanKind[]).map((kind) => (
+              <span key={kind} className="inline-flex items-center gap-1.5">
+                <span className={`inline-block size-2.5 rounded-full ${MARK_CLASS[kind]}`} aria-hidden />
+                {MARK_LABEL[kind]}
+              </span>
+            ))}
+            <span>Наведите на полосу — покажу подробности. Поездка открывается нажатием.</span>
+          </div>
         </>
       )}
+
+      {hint && <HintBox hint={hint} />}
     </section>
+  );
+}
+
+/**
+ * Подсказка о полосе.
+ *
+ * Стоит в координатах окна, а не внутри таблицы: таблица прокручивается вбок,
+ * и подсказку внутри неё обрезало бы по краю.
+ */
+function HintBox({ hint }: { hint: Hint }) {
+  const { span } = hint;
+  const margin = 140;
+  const x = Math.min(Math.max(hint.x, margin), window.innerWidth - margin);
+
+  return (
+    <div
+      role="tooltip"
+      className="pointer-events-none fixed z-50 w-max max-w-64 -translate-x-1/2 -translate-y-full rounded-md border border-line-strong bg-surface px-3 py-2 text-xs shadow-lg"
+      style={{ left: x, top: hint.y - 8 }}
+    >
+      <p className="flex items-center gap-1.5 font-medium">
+        <span className={`inline-block size-2 shrink-0 rounded-full ${MARK_CLASS[span.kind]}`} aria-hidden />
+        {span.title}
+      </p>
+      <p className="mt-0.5 text-fg-soft">{span.when}</p>
+      {span.detail && <p className="mt-0.5 text-fg-soft">{span.detail}</p>}
+    </div>
   );
 }

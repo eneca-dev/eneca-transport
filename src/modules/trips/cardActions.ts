@@ -3,7 +3,7 @@ import 'server-only';
 import { getDb } from '@/config/supabase';
 import { decideRemark } from '@/modules/cars/remarks';
 import { notifyFinanceNewRequest } from '@/modules/documents/notify';
-import { cancelTrip } from './changeService';
+import { cancelTrip, confirmForDriver } from './changeService';
 import { notifyTripChanged } from './notifyChange';
 import { submitReturn } from './returnService';
 import { setDocsReady } from '@/modules/documents/service';
@@ -221,6 +221,23 @@ export async function handleCardAction(
         return { message: 'Возврат оформляет автор поездки.', done: false };
       }
       return submitReturnFromCard(trip.id, employee.id, value);
+    }
+    case 'driver_confirm_aho': {
+      // Подтверждение за водителя — решение АХО: она звонит водителю, когда он
+      // не ответил в боте. Автору такого права нет, иначе подтверждение
+      // перестаёт что-либо значить.
+      if (!isAho) {
+        return { message: 'Подтвердить за водителя может АХО.', done: false };
+      }
+      const outcome = await confirmForDriver(trip.id, employee.id);
+      return outcome.ok
+        ? {
+            message:
+              'Поездка подтверждена за водителя. Водитель получил сообщение в Telegram, ' +
+              'в журнале заявки записано, что подтвердили вы.',
+            done: true,
+          }
+        : { message: outcome.reason, done: false };
     }
     case 'car_to_repair':
     case 'remark_handled': {

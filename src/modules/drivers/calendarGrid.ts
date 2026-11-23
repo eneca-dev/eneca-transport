@@ -75,43 +75,92 @@ export function firstWeekdayIndex(month: string): number {
   return (new Date(`${month}-01T00:00:00Z`).getUTCDay() + 6) % 7;
 }
 
-/** Отрезок поездки — только начало и конец, остальное сетке не нужно. */
-export interface Span {
+/**
+ * Чем помечен день.
+ *
+ * Покрасить кнопку в Telegram нельзя — цвета у inline-клавиатуры нет вовсе.
+ * Единственный цвет, который там доступен, — эмодзи в тексте кнопки, поэтому
+ * метки сделаны цветными кружками. Это же и самый привычный для Telegram вид.
+ */
+export type DayMark = 'pending' | 'active' | 'away' | 'closed';
+
+export const DAY_MARK: Record<DayMark, string> = {
+  pending: '🟡',
+  active: '🟢',
+  away: '🔴',
+  closed: '⚪',
+};
+
+export const DAY_MARK_LABEL: Record<DayMark, string> = {
+  pending: 'нужно подтвердить',
+  active: 'поездка',
+  away: 'вы не работаете',
+  closed: 'уже закрыта',
+};
+
+/**
+ * Что показать, когда на один день приходится несколько пометок.
+ *
+ * Вперёд идёт то, что требует действия водителя: подтверждение важнее, чем
+ * сообщение о самой поездке, а поездка важнее отметки об отсутствии — если
+ * они совпали, разбираться с этим всё равно придётся.
+ */
+const MARK_ORDER: readonly DayMark[] = ['pending', 'active', 'away', 'closed'];
+
+/** Отрезок с пометкой: поездка или период отсутствия. */
+export interface MarkedSpan {
+  /** Момент или календарная дата — лишь бы `Date` их понимал. */
   startsAt: string;
   endsAt: string;
+  mark: DayMark;
 }
 
 /**
- * Числа месяца, на которые попадает хотя бы одна поездка.
+ * Метки по числам месяца.
  *
  * Проверяется пересечение с сутками, а не дата начала: многодневная поездка
  * занимает каждый свой день, иначе в календаре она выглядела бы однодневной.
  */
-export function busyDays(month: string, spans: Span[]): Set<number> {
-  const busy = new Set<number>();
+export function dayMarks(month: string, spans: MarkedSpan[]): Map<number, DayMark> {
+  const marks = new Map<number, DayMark>();
 
   for (let day = 1; day <= daysInMonth(month); day += 1) {
     const { from, to } = minskDay(`${month}-${pad(day)}`);
 
-    const touched = spans.some(
+    const touching = spans.filter(
       (span) => new Date(span.startsAt) < to && new Date(span.endsAt) >= from,
     );
 
-    if (touched) {
-      busy.add(day);
+    if (touching.length === 0) {
+      continue;
+    }
+
+    const best = MARK_ORDER.find((mark) => touching.some((span) => span.mark === mark));
+
+    if (best) {
+      marks.set(day, best);
     }
   }
 
-  return busy;
+  return marks;
+}
+
+/** Какие метки встретились — для подписи под сеткой. */
+export function usedMarks(marks: Map<number, DayMark>): DayMark[] {
+  return MARK_ORDER.filter((mark) => [...marks.values()].includes(mark));
 }
 
 /**
  * Сетка месяца: заголовок со стрелками, названия дней недели, числа.
  *
- * Занятые дни — в квадратных скобках, а не значком: кнопка в Telegram узкая,
- * и скобки читаются одинаково на любом телефоне и в любой теме.
+ * У помеченного дня кружок стоит после числа: сначала дата, которую ищут
+ * глазами, потом цвет. Перед числом кружок сбивал бы чтение колонки.
  */
-export function monthGrid(month: string, busy: Set<number>, today: string): InlineButton[][] {
+export function monthGrid(
+  month: string,
+  marks: Map<number, DayMark>,
+  today: string,
+): InlineButton[][] {
   const header: InlineButton[] = [
     { text: '‹', data: `cal:m:${shiftMonth(month, -1)}` },
     { text: formatMonthLabel(month), data: 'cal:x' },
@@ -124,11 +173,11 @@ export function monthGrid(month: string, busy: Set<number>, today: string): Inli
 
   for (let day = 1; day <= daysInMonth(month); day += 1) {
     const date = `${month}-${pad(day)}`;
-    const isBusy = busy.has(day);
+    const mark = marks.get(day);
 
     cells.push({
-      text: isBusy ? `[${day}]` : String(day),
-      data: isBusy ? `cal:d:${date}` : `cal:f:${date}`,
+      text: mark ? `${day}${DAY_MARK[mark]}` : String(day),
+      data: mark ? `cal:d:${date}` : `cal:f:${date}`,
     });
   }
 

@@ -8,19 +8,25 @@ import {
 } from '@/lib/bots/telegramMessages';
 import { getDb } from '@/config/supabase';
 import { formatDateLabel, formatMonthLabel } from '@/lib/datetime';
+import { toMinskDate } from '@/modules/trips/booking';
 
 import {
-  busyDays,
   currentMinskMonth,
+  DAY_MARK,
+  DAY_MARK_LABEL,
   DAY_PATTERN,
+  dayMarks,
   minskDay,
   minskMonth,
   monthGrid,
   MONTH_PATTERN,
+  usedMarks,
 } from './calendarGrid';
-import { driverByChat } from './queries';
+import { driverByChat, driverUnavailability, REASON_LABEL } from './queries';
 
+import type { DayMark, MarkedSpan } from './calendarGrid';
 import type { DriverDayTrip } from '@/lib/bots/telegramMessages';
+import type { DriverUnavailability } from './queries';
 import type { BotReply } from '@/modules/trips/driverReturn';
 
 /**
@@ -90,6 +96,10 @@ function toDayTrip(trip: CalendarTripRow): DriverDayTrip {
  *
  * Отменённые не берутся: бронь освобождена, и в графике водителя их нет.
  * Закрытые берутся — водитель спрашивает и про прошлый месяц тоже.
+ *
+ * Поездки, от которых водитель отказался, тоже не берутся. Формально он с них
+ * ещё не снят — снимет АХО, — но для него они уже чужие, и зелёный кружок в
+ * его календаре означал бы, что ехать всё-таки ему.
  */
 async function tripsInRange(driverId: string, from: Date, to: Date): Promise<CalendarTripRow[]> {
   const { data, error } = await getDb()
@@ -97,6 +107,7 @@ async function tripsInRange(driverId: string, from: Date, to: Date): Promise<Cal
     .select(SELECT)
     .eq('driver_id', driverId)
     .neq('status', 'cancelled')
+    .neq('driver_confirmation', 'declined')
     .lt('starts_at', to.toISOString())
     .gte('ends_at', from.toISOString())
     .order('starts_at')
@@ -109,29 +120,80 @@ async function tripsInRange(driverId: string, from: Date, to: Date): Promise<Cal
   return data ?? [];
 }
 
+/** Каким кружком помечается день с этой поездкой. */
+function markOf(trip: CalendarTripRow): DayMark {
+  if (trip.status === 'closed') {
+    return 'closed';
+  }
+  if (trip.driver_confirmation === 'pending' || trip.driver_confirmation === 'timeout') {
+    return 'pending';
+  }
+  return 'active';
+}
+
+/** «Отпуск с 2 декабря по 9 декабря» — строка для дня. */
+function awayLine(period: DriverUnavailability): string {
+  const reason = REASON_LABEL[period.reason];
+  const head = `${reason[0].toUpperCase()}${reason.slice(1)}`;
+
+  const when =
+    period.since === period.until
+      ? head
+      : `${head} с ${formatDateLabel(period.since)} по ${formatDateLabel(period.until)}`;
+
+  return period.note ? `${when}. ${period.note}` : `${when}.`;
+}
+
 /** Календарь месяца: подпись и сетка. */
 export async function driverMonthReply(driverId: string, month: string): Promise<BotReply> {
   const { from, to } = minskMonth(month);
-  const trips = await tripsInRange(driverId, from, to);
+  const monthStart = `${month}-01`;
+  const monthEnd = toMinskDate(new Date(to.getTime() - 1));
 
-  const busy = busyDays(
-    month,
-    trips.map((trip) => ({ startsAt: trip.starts_at, endsAt: trip.ends_at })),
-  );
+  const [trips, away] = await Promise.all([
+    tripsInRange(driverId, from, to),
+    driverUnavailability(driverId, monthStart, monthEnd),
+  ]);
+
+  const spans: MarkedSpan[] = [
+    ...trips.map((trip) => ({
+      startsAt: trip.starts_at,
+      endsAt: trip.ends_at,
+      mark: markOf(trip),
+    })),
+    // У периода отсутствия только даты, без времени: берём минские сутки
+    // целиком, иначе последний день выпал бы из пометок.
+    ...away.map((period) => ({
+      startsAt: minskDay(period.since).from.toISOString(),
+      endsAt: new Date(minskDay(period.until).to.getTime() - 1).toISOString(),
+      mark: 'away' as const,
+    })),
+  ];
+
+  const marks = dayMarks(month, spans);
+  const legend = usedMarks(marks).map((mark) => `${DAY_MARK[mark]} ${DAY_MARK_LABEL[mark]}`);
 
   return {
-    text: messageDriverMonth(formatMonthLabel(month), trips.length),
-    rows: monthGrid(month, busy, currentMinskMonth()),
+    text: messageDriverMonth(formatMonthLabel(month), trips.length, legend),
+    rows: monthGrid(month, marks, currentMinskMonth()),
   };
 }
 
-/** Один день: поездки этого дня и кнопка назад в месяц. */
+/** Один день: поездки этого дня, отметка об отсутствии и кнопка назад. */
 async function driverDayReply(driverId: string, date: string): Promise<BotReply> {
   const { from, to } = minskDay(date);
-  const trips = await tripsInRange(driverId, from, to);
+
+  const [trips, away] = await Promise.all([
+    tripsInRange(driverId, from, to),
+    driverUnavailability(driverId, date, date),
+  ]);
 
   return {
-    text: messageDriverDay(formatDateLabel(date), trips.map(toDayTrip)),
+    text: messageDriverDay(
+      formatDateLabel(date),
+      trips.map(toDayTrip),
+      away.length > 0 ? away.map(awayLine).join('\n') : null,
+    ),
     rows: [[{ text: '‹ Календарь', data: `cal:m:${date.slice(0, 7)}` }]],
   };
 }

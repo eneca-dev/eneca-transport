@@ -166,3 +166,37 @@ export async function driverByChat(
   }
   return data;
 }
+
+/**
+ * Причины недоступности по-русски — одним набором на приложение.
+ *
+ * Нужны и в календаре АХО, и в календаре самого водителя. Два списка
+ * разошлись бы: в одном месте «недоступен», в другом «другое».
+ */
+export const REASON_LABEL: Record<UnavailabilityReason, string> = {
+  sick: 'болезнь',
+  vacation: 'отпуск',
+  other: 'недоступен',
+};
+
+/** Периоды недоступности водителя, которые задевают отрезок дат. */
+export async function driverUnavailability(
+  driverId: string,
+  since: string,
+  until: string,
+): Promise<DriverUnavailability[]> {
+  const { data, error } = await getDb()
+    .from('driver_unavailability')
+    .select('id, since, until, reason, note')
+    .eq('driver_id', driverId)
+    .lte('since', until)
+    .gte('until', since)
+    .order('since')
+    .returns<DriverUnavailability[]>();
+
+  if (error) {
+    throw new Error(`Не удалось прочитать периоды недоступности: ${error.message}`);
+  }
+
+  return data ?? [];
+}
