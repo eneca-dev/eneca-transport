@@ -3,7 +3,7 @@ import 'server-only';
 import { BOOKING_BUFFER_MINUTES } from '@/config/app';
 import { getDb } from '@/config/supabase';
 
-import type { ConflictingTrip } from './conflictText';
+import type { ConflictingTrip, TooSoon } from './conflictText';
 
 /**
  * Что мешает закрыть просроченную поездку.
@@ -25,8 +25,8 @@ import type { ConflictingTrip } from './conflictText';
  * прочитать и проверить без приложения; здесь только поиск.
  */
 
-export { conflictList, lateReturnReason } from './conflictText';
-export type { ConflictingTrip } from './conflictText';
+export { conflictList, issueTooSoonReason, lateReturnReason } from './conflictText';
+export type { ConflictingTrip, TooSoon } from './conflictText';
 
 /** Поездка, которую пытаются закрыть. */
 export interface OccupyingTrip {
@@ -92,4 +92,52 @@ export async function lateReturnConflicts(
     endsAt: row.ends_at,
     kind: row.car_id !== null && row.car_id === trip.carId ? 'car' : 'driver',
   }));
+}
+
+/**
+ * Не рано ли выдавать эту машину.
+ *
+ * Требование: следующая бронь — не раньше чем через 10 минут после
+ * фактического возврата. Проверяется здесь, при выдаче, а не ограничением
+ * базы: закрытая поездка — история, и занимать время она больше не может,
+ * иначе просроченный возврат вообще нельзя принять (миграция 0004).
+ *
+ * `null` — выдавать можно.
+ */
+export async function issueTooSoon(carId: string, now: Date): Promise<TooSoon | null> {
+  const { data, error } = await getDb()
+    .from('trips')
+    .select('id, keys_returned_at')
+    .eq('car_id', carId)
+    .eq('status', 'closed')
+    .not('keys_returned_at', 'is', null)
+    .order('keys_returned_at', { ascending: false })
+    .limit(1)
+    .returns<{ id: number; keys_returned_at: string }[]>();
+
+  if (error) {
+    // Отказывать из-за сбоя проверки нельзя: машина стоит, человек ждёт.
+    console.error(`Машина ${carId}: не удалось проверить время прошлой сдачи`, error);
+    return null;
+  }
+
+  const last = (data ?? [])[0];
+
+  if (!last) {
+    return null;
+  }
+
+  const freeFrom = new Date(
+    new Date(last.keys_returned_at).getTime() + BOOKING_BUFFER_MINUTES * 60_000,
+  );
+
+  if (freeFrom <= now) {
+    return null;
+  }
+
+  return {
+    tripId: last.id,
+    returnedAt: last.keys_returned_at,
+    freeFrom: freeFrom.toISOString(),
+  };
 }

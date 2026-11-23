@@ -32,12 +32,13 @@ interface TripRow {
   author_id: string;
   driver_id: string | null;
   starts_at: string;
+  ends_at: string;
   odometer_start_km: number | null;
   odometer_end_km: number | null;
 }
 
 const TRIP_SELECT =
-  'id, status, car_id, author_id, driver_id, starts_at, ' +
+  'id, status, car_id, author_id, driver_id, starts_at, ends_at, ' +
   'odometer_start_km, odometer_end_km';
 
 /** Кто оформляет возврат: сотрудник во вкладке или водитель в Telegram. */
@@ -228,10 +229,22 @@ export async function acceptKeys(tripId: number, employeeId: string): Promise<Re
     }
   }
 
+  // Насколько опоздали со сдачей. В журнале это отдельной припиской: из
+  // одного времени закрытия не видно, что машину держали лишние двое суток,
+  // а искать плановое время в карточке через месяц уже некому.
+  const lateByMinutes = Math.max(
+    0,
+    Math.round((new Date(now).getTime() - new Date(trip.ends_at).getTime()) / 60_000),
+  );
+
   const { error: eventError } = await db.from('trip_events').insert({
     trip_id: tripId,
     kind: 'closed',
-    payload: { odometer_end_km: trip.odometer_end_km },
+    payload: {
+      odometer_end_km: trip.odometer_end_km,
+      planned_return_at: trip.ends_at,
+      late_by_minutes: lateByMinutes,
+    },
     actor_employee: employeeId,
   });
 

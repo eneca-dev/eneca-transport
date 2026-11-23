@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { getDb } from '@/config/supabase';
 import { AccessError, requireRole } from '@/lib/auth/currentEmployee';
 
+import { issueTooSoon, issueTooSoonReason } from '@/modules/trips/bookingConflicts';
 import { acceptKeys } from '@/modules/trips/returnService';
 
 import { notifyKeysIssued } from './notify';
@@ -112,6 +113,16 @@ export async function issueKeys(
         success: false,
         error: `Машина ещё в поездке #${busy![0].id}. Сначала примите её.`,
       };
+    }
+
+    // Требование: следующая бронь — не раньше чем через 10 минут после
+    // фактического возврата. Проверяется здесь, а не ограничением базы:
+    // закрытая поездка время больше не занимает (миграция 0004), иначе
+    // просроченный возврат вообще нельзя принять.
+    const tooSoon = await issueTooSoon(trip.car_id, new Date());
+
+    if (tooSoon) {
+      return { success: false, error: issueTooSoonReason(tooSoon) };
     }
 
     const { data: car, error: carError } = await db

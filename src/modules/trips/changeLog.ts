@@ -1,3 +1,5 @@
+import { formatLateness } from '@/lib/datetime';
+
 /**
  * Что именно изменилось — одной строкой.
  *
@@ -137,6 +139,23 @@ export function describeForJournal(event: ChangeEvent): string | null {
   if (kind === 'driver_confirmed_by_aho') {
     const driver = str(payload, 'driver');
     return driver ? `за водителя ${driver}` : null;
+  }
+
+  if (kind === 'closed') {
+    const end = num(payload, 'odometer_end_km');
+    const lateBy = num(payload, 'late_by_minutes');
+    const parts: string[] = [];
+
+    if (end !== null) {
+      parts.push(`одометр ${end.toLocaleString('ru-RU')} км`);
+    }
+    // Просрочка названа прямо: через месяц из одного времени закрытия не
+    // видно, что машину не сдавали двое суток.
+    if (lateBy !== null && lateBy > 0) {
+      parts.push(`с просрочкой ${formatLateness(lateBy)}`);
+    }
+
+    return parts.length > 0 ? parts.join(' · ') : null;
   }
 
   // Остальное описывается так же, как для финотдела: «было → стало».

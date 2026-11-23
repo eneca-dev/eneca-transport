@@ -101,3 +101,29 @@ export function formatDayRange(from: Date, to: Date): string {
   }
   return `${fromDay}.${fromMonth}–${toDay}.${toMonth}`;
 }
+
+/**
+ * «2 дня 20 ч», «3 ч 15 мин», «40 мин» — насколько опоздали.
+ *
+ * Дни и часы без минут: когда машину не сдавали двое суток, минуты в этой
+ * фразе ничего не добавляют. До часа, наоборот, важны именно минуты.
+ */
+export function formatLateness(minutes: number): string {
+  if (minutes < 60) {
+    return `${minutes} мин`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest === 0 ? `${hours} ч` : `${hours} ч ${rest} мин`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const restHours = hours % 24;
+  const dayWord = days % 10 === 1 && days % 100 !== 11 ? 'день' : 'дня';
+  const daysPart = days >= 5 && days <= 20 ? `${days} дней` : `${days} ${dayWord}`;
+
+  return restHours === 0 ? daysPart : `${daysPart} ${restHours} ч`;
+}
