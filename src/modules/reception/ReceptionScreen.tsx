@@ -15,6 +15,7 @@ import { useTeamsAuth } from '@/components/TeamsAuth';
 import { APP_TIMEZONE } from '@/config/app';
 import { formatMoment, formatTime } from '@/lib/datetime';
 import { toMinskDate } from '@/modules/trips/booking';
+import { tripLabelFrom } from '@/modules/trips/tripLabel';
 
 import { acceptTripKeys, issueKeys, loadReceptionDay } from './actions';
 
@@ -130,9 +131,13 @@ function Row({ trip, time, detail, action }: RowProps) {
       {time && <span className="font-mono text-sm">{time}</span>}
       <div className="min-w-0 flex-1">
         <p>
-          <span className="font-mono text-sm text-fg-soft">#{trip.id}</span>{' '}
-          <span className="font-medium">{trip.carLabel ?? '—'}</span>{' '}
-          <span className="text-sm text-fg-soft">{people(trip)}</span>
+          <span className="font-medium">
+            {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
+          </span>{' '}
+          <span className="text-sm">{trip.carLabel ?? '—'}</span>{' '}
+          <span className="text-sm text-fg-soft">
+            {people(trip)} · <span className="font-mono">№{trip.id}</span>
+          </span>
         </p>
         {detail}
       </div>

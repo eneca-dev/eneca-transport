@@ -11,6 +11,7 @@ import {
 } from '@/lib/bots/telegramMessages';
 
 import { notifyAhoOdometerTooLow, notifyAhoRemark } from './notifyReturn';
+import { tripLabelFrom, tripRef } from './tripLabel';
 
 import type { DriverTripLine } from '@/lib/bots/telegramMessages';
 import type { InlineButton } from '@/lib/bots/telegram';
@@ -117,8 +118,7 @@ function prompt(trip: DriverTripRow, step: ReturnStep): BotReply {
     case 'odometer':
       return {
         text: messageT5Odometer(
-          trip.id,
-          trip.route,
+          tripRef(trip),
           trip.odometer_start_km ?? 0,
           trip.employees?.display_name ?? null,
         ),
@@ -332,6 +332,11 @@ export async function listDriverTrips(driverId: string): Promise<BotReply> {
   // не нужно.
   return {
     text: messageMyTrips(lines),
-    buttons: [{ text: `Оформить возврат #${inTrip.id}`, data: 'return:start' }],
+    buttons: [
+      {
+        text: `Оформить возврат · ${tripLabelFrom(inTrip.route, inTrip.starts_at, inTrip.ends_at)}`,
+        data: 'return:start',
+      },
+    ],
   };
 }

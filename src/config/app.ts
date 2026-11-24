@@ -46,6 +46,7 @@ export const APP_ID_URI = `api://${APP_DOMAIN}/botid-${ENTRA_CLIENT_ID}`;
  */
 export const TAB_SCREENS = {
   new: '/trips/new',
+  help: '/help',
   reception: '/reception',
   documents: '/documents',
   calendar: '/calendar',

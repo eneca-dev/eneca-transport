@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState, useTransition } from 'react';
 
 import { BADGE, BADGE_DOT, BUTTON_PRIMARY_SM, BUTTON_SECONDARY } from '@/components/controls';
 import { useTeamsAuth } from '@/components/TeamsAuth';
-import { formatDayRange, formatPeriod } from '@/lib/datetime';
+import { formatPeriod } from '@/lib/datetime';
+import { tripLabelFrom } from '@/modules/trips/tripLabel';
 
 import { loadDocumentQueue, markDocsReady } from './actions';
 
@@ -66,11 +67,12 @@ export function DocumentsScreen() {
             <li key={trip.id} className="flex flex-wrap items-start gap-x-4 gap-y-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-sm text-fg-soft">#{trip.id}</span>
-                  <span className="text-sm">
-                    {formatDayRange(new Date(trip.startsAt), new Date(trip.endsAt))}
+                  <span className="font-medium">
+                    {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
                   </span>
-                  <span className="font-medium">{trip.route}</span>
+                  {/* Номер финотделу нужен: он попадает в документы. */}
+                  <span className="font-mono text-sm text-fg-soft">№{trip.id}</span>
+                  <span className="text-sm">{trip.route}</span>
                   {/* Повторная проверка выделяется: прежний комплект уже не годится. */}
                   {trip.recheck && (
                     <span className={`${BADGE} bg-warn text-warn-fg`}>

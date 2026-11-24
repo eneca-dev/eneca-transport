@@ -6,16 +6,22 @@ import { getDb } from '@/config/supabase';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import { askReturnStep } from './driverReturn';
+import { tripRef } from './tripLabel';
 
 /** Т5 и Т6 водителю: начало возврата по сроку и сообщение о закрытии. */
 
 interface DriverRow {
+  id: number;
+  route: string;
+  starts_at: string;
+  ends_at: string;
   driver_id: string | null;
   distance_km: number | null;
   drivers: { telegram_chat_id: number | null } | null;
 }
 
-const SELECT = 'driver_id, distance_km, drivers(telegram_chat_id)';
+const SELECT =
+  'id, route, starts_at, ends_at, driver_id, distance_km, drivers(telegram_chat_id)';
 
 async function loadDriver(tripId: number): Promise<DriverRow | null> {
   const { data, error } = await getDb()
@@ -98,7 +104,7 @@ export async function notifyDriverTripClosed(tripId: number): Promise<void> {
   }
 
   await deliverOnce(entry, () =>
-    sendTelegramMessage(chatId, messageT6(tripId, trip.distance_km ?? 0), {
+    sendTelegramMessage(chatId, messageT6(tripRef(trip), trip.distance_km ?? 0), {
       withKeyboard: true,
     }),
   );

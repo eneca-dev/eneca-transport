@@ -15,6 +15,7 @@ import { listEmployeesByRole } from '@/modules/employees/queries';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import { isMinskWeekend, minskDayBounds, minskHour, toMinskDate } from './booking';
+import { tripRef } from './tripLabel';
 
 import type { TripCardData } from '@/lib/bots/cards';
 
@@ -124,8 +125,7 @@ async function remindDayBefore(now: Date): Promise<number> {
           sendTelegramMessage(
             chatId,
             messageT3(
-              trip.id,
-              trip.route,
+              tripRef(trip),
               departure,
               carLabel,
               trip.employees?.display_name ?? null,

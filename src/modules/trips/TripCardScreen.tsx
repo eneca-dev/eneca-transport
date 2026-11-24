@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useState, useTransition } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronDown } from 'lucide-react';
 
 import { BADGE, BADGE_DOT, BUTTON_PRIMARY, BUTTON_SECONDARY } from '@/components/controls';
 import { useTeamsAuth } from '@/components/TeamsAuth';
@@ -25,6 +25,7 @@ import { DriverPicker } from './DriverPicker';
 import { EditTripForm } from './EditTripForm';
 import { RescheduleForm } from './RescheduleForm';
 import { ReturnForm } from './ReturnForm';
+import { tripLabelFrom } from './tripLabel';
 import { describeForJournal } from './changeLog';
 import { CONFIRMATION_LABEL, CONFIRMATION_TONE, TONE_CLASS, tripState } from './tripStatus';
 
@@ -79,6 +80,8 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
   const [assigning, setAssigning] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pickingCar, setPickingCar] = useState(false);
+  /** Правка заявки раскрывается по кнопке: главное действие должно быть одно. */
+  const [showChanges, setShowChanges] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const load = useCallback(() => {
@@ -108,6 +111,8 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
    * требованиях: «ошибка до закрытия поездки — отправитель исправляет своё
    * значение, пробег пересчитывается».
    */
+  const isAho = employee.roles.includes('aho');
+
   const canReturn =
     trip !== null && trip.status === 'in_trip' && !trip.needsDriver && trip.isAuthor;
   const correcting = trip !== null && trip.odometerEndKm !== null;
@@ -120,6 +125,30 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
     trip !== null &&
     ['booked', 'docs_ready'].includes(trip.status) &&
     trip.keysIssuedAt === null;
+
+  /**
+   * Решение по водителю нужно сейчас: его нет, он отказался или не ответил.
+   *
+   * Только в этих случаях кнопка стоит главной. Когда водитель назначен и
+   * подтвердил, заменить его тоже можно — но это уже правка заявки, и место ей
+   * под «Изменить заявку».
+   */
+  const driverNeedsDecision =
+    canChange &&
+    isAho &&
+    trip.needsDriver &&
+    (trip.driverName === null ||
+      trip.driverConfirmation === 'declined' ||
+      trip.driverConfirmation === 'timeout');
+
+  /** Подтвердить за водителя: он ответил голосом по телефону. */
+  const canConfirmForDriver =
+    canChange &&
+    isAho &&
+    trip.needsDriver &&
+    trip.driverName !== null &&
+    trip.driverConfirmation !== 'confirmed' &&
+    trip.driverConfirmation !== 'declined';
 
   /** Одно действие за раз: иначе непонятно, что сохранится. */
   function closeForms() {
@@ -170,8 +199,6 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
     return <p className="text-sm text-fg-soft">Загрузка…</p>;
   }
 
-  const isAho = employee.roles.includes('aho');
-
   const state = tripState(trip, {
     isAuthor: trip.isAuthor,
     isAho: employee.roles.includes('aho'),
@@ -205,9 +232,11 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
             {state.label}
           </span>
         </div>
-        <p className="mt-1 text-base font-medium">{trip.route}</p>
+        <p className="mt-1 text-base font-medium">
+          {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
+        </p>
         <p className="mt-0.5 text-sm text-fg-soft">
-          Поездка <span className="font-mono">#{trip.id}</span>
+          {trip.route} · поездка <span className="font-mono">№{trip.id}</span>
         </p>
       </div>
 
@@ -309,6 +338,9 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         </>
       )}
 
+      {/* Главное действие — крупной кнопкой и одно. Правка заявки убрана под
+          «Изменить заявку»: раньше шесть кнопок стояли в ряд наравне, и из них
+          не было видно, что сейчас от человека нужно. */}
       <div className="mt-4 flex flex-wrap gap-2">
         {canReturn && !returning && (
           <button
@@ -340,93 +372,136 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
             </button>
           )}
 
-        {/* Решения АХО по водителю: назначить другого или подтвердить за
-            него, если он ответил голосом по телефону. */}
-        {canChange && isAho && !assigning && (
+        {/* Водителя нет, он отказался или не ответил — решение нужно сейчас,
+            поэтому кнопка главная, а не под «Изменить заявку». */}
+        {driverNeedsDecision && !assigning && (
           <button
             type="button"
             onClick={() => {
               closeForms();
               setAssigning(true);
             }}
-            className={BUTTON_SECONDARY}
+            className={BUTTON_PRIMARY}
           >
-            {trip.needsDriver && trip.driverName ? 'Заменить водителя' : 'Назначить водителя'}
+            {trip.driverName ? 'Заменить водителя' : 'Назначить водителя'}
           </button>
         )}
 
-        {canChange &&
-          isAho &&
-          trip.needsDriver &&
-          trip.driverName !== null &&
-          trip.driverConfirmation !== 'confirmed' && (
-            <button
-              type="button"
-              onClick={() => apply((token) => confirmForDriverAction(token, tripId))}
-              disabled={pending}
-              className={BUTTON_SECONDARY}
-            >
-              Подтвердить за водителя
-            </button>
-          )}
-
-        {canChange && !editing && (
+        {canConfirmForDriver && trip.driverConfirmation === 'timeout' && (
           <button
             type="button"
-            onClick={() => {
-              closeForms();
-              setEditing(true);
-            }}
+            onClick={() => apply((token) => confirmForDriverAction(token, tripId))}
+            disabled={pending}
             className={BUTTON_SECONDARY}
           >
-            Изменить
+            Подтвердить за водителя
           </button>
         )}
 
-        {canChange && !pickingCar && (
+        {canChange && !showChanges && (
           <button
             type="button"
-            onClick={() => {
-              closeForms();
-              setPickingCar(true);
-            }}
-            className={BUTTON_SECONDARY}
+            onClick={() => setShowChanges(true)}
+            className={`${BUTTON_SECONDARY} inline-flex items-center gap-1.5`}
           >
-            Сменить машину
+            Изменить заявку
+            <ChevronDown className="size-4" aria-hidden />
           </button>
-        )}
-
-        {canChange && !rescheduling && !confirmCancel && (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                closeForms();
-                setRescheduling(true);
-              }}
-              className={BUTTON_SECONDARY}
-            >
-              Перенести
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                closeForms();
-                setConfirmCancel(true);
-              }}
-              className={`${BUTTON_SECONDARY} text-bad-fg`}
-            >
-              Отменить
-            </button>
-          </>
         )}
       </div>
+
+      {canChange && showChanges && (
+        <div className="mt-3 rounded-lg border border-line bg-surface-soft p-3">
+          <p className="mb-2 text-xs font-semibold tracking-wide text-fg-soft uppercase">
+            Изменить заявку
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {!editing && (
+              <button
+                type="button"
+                onClick={() => {
+                  closeForms();
+                  setEditing(true);
+                }}
+                className={BUTTON_SECONDARY}
+              >
+                Маршрут, договор, цель, участники
+              </button>
+            )}
+
+            {!pickingCar && (
+              <button
+                type="button"
+                onClick={() => {
+                  closeForms();
+                  setPickingCar(true);
+                }}
+                className={BUTTON_SECONDARY}
+              >
+                Сменить машину
+              </button>
+            )}
+
+            {/* Та же кнопка, что выше, но здесь — когда решение не срочное. */}
+            {isAho && !driverNeedsDecision && !assigning && (
+              <button
+                type="button"
+                onClick={() => {
+                  closeForms();
+                  setAssigning(true);
+                }}
+                className={BUTTON_SECONDARY}
+              >
+                {trip.needsDriver && trip.driverName ? 'Заменить водителя' : 'Назначить водителя'}
+              </button>
+            )}
+
+            {canConfirmForDriver && trip.driverConfirmation !== 'timeout' && (
+              <button
+                type="button"
+                onClick={() => apply((token) => confirmForDriverAction(token, tripId))}
+                disabled={pending}
+                className={BUTTON_SECONDARY}
+              >
+                Подтвердить за водителя
+              </button>
+            )}
+
+            {!rescheduling && !confirmCancel && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeForms();
+                    setRescheduling(true);
+                  }}
+                  className={BUTTON_SECONDARY}
+                >
+                  Перенести
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeForms();
+                    setConfirmCancel(true);
+                  }}
+                  className={`${BUTTON_SECONDARY} text-bad-fg`}
+                >
+                  Отменить
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Отмена необратима и освобождает машину, поэтому спрашиваем ещё раз.
           Своим диалогом, а не браузерным: Teams его не показывает. */}
       {confirmCancel && (
         <div className="mt-4 rounded-lg border border-bad-line bg-bad p-4 text-sm text-bad-fg">
-          <p className="font-medium">Отменить поездку #{trip.id}?</p>
+          <p className="font-medium">
+            Отменить {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}?
+          </p>
           <p className="mt-1">
             Машина и водитель освободятся, подготовка документов прекратится. Отменённую поездку
             не вернуть — придётся оформлять заявку заново.

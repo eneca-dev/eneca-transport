@@ -1,5 +1,6 @@
 import { screenDeepLink, tripDeepLink } from '@/config/app';
 import { formatPeriod } from '@/lib/datetime';
+import { tripLabelFrom } from '@/modules/trips/tripLabel';
 
 import type { TabScreen } from '@/config/app';
 
@@ -154,11 +155,29 @@ function period(trip: TripCardData): string {
   return formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt));
 }
 
+/**
+ * Название поездки — «Гомель/01.12». Стоит в заголовке каждой карточки: в
+ * списке чатов видно именно его, а «Поездка #127» не говорит ничего.
+ */
+function label(trip: TripCardData): string {
+  return tripLabelFrom(trip.route, trip.startsAt, trip.endsAt);
+}
+
+/**
+ * Подпись под заголовком: номер, время и полный маршрут.
+ *
+ * Номер нужен для ссылки и для документов финотдела, но читают не его, поэтому
+ * он ушёл из заголовка в подпись.
+ */
+function subline(trip: TripCardData): string {
+  return `№${trip.id} · ${period(trip)} · ${trip.route}`;
+}
+
 /** К1: автору, бронь создана. */
 export function cardK1(trip: TripCardData): unknown {
   return buildCard({
-    title: `Поездка #${trip.id} забронирована`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · забронирована`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
@@ -201,8 +220,8 @@ export function cardCancelConfirm(
   route: string,
 ): unknown {
   return buildCard({
-    title: `Отменить поездку #${tripId}?`,
-    subtitle: `${formatPeriod(new Date(startsAt), new Date(endsAt))} · ${route}`,
+    title: `Отменить ${tripLabelFrom(route, startsAt, endsAt)}?`,
+    subtitle: `№${tripId} · ${formatPeriod(new Date(startsAt), new Date(endsAt))} · ${route}`,
     facts: [],
     note:
       'Машина и водитель освободятся, участники, рецепция и финотдел получат уведомление. ' +
@@ -233,9 +252,9 @@ export function cardCancelConfirm(
 export function cardK3(trip: TripCardData, recheck: boolean, changes: string[] = []): unknown {
   return buildCard({
     title: recheck
-      ? `Поездка #${trip.id} изменилась — нужна повторная проверка`
-      : `Новая заявка #${trip.id}`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+      ? `${label(trip)} · изменилась, нужна повторная проверка`
+      : `${label(trip)} · новая заявка`,
+    subtitle: subline(trip),
     facts: [
       {
         title: 'Участники',
@@ -275,7 +294,7 @@ export function cardK3(trip: TripCardData, recheck: boolean, changes: string[] =
 export function cardK7(trip: TripCardData, returnBy: string, odometerStartKm: number): unknown {
   return buildCard({
     title: `Хорошей поездки. Вернуть ключи до ${returnBy}`,
-    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
@@ -292,8 +311,8 @@ export function cardK7(trip: TripCardData, returnBy: string, odometerStartKm: nu
 /** К4: автору — документы готовы. */
 export function cardK4(trip: TripCardData): unknown {
   return buildCard({
-    title: `Поездка #${trip.id}: документы готовы`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · документы готовы`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
@@ -321,14 +340,14 @@ export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
     body: [
       {
         type: 'TextBlock',
-        text: `Поездка #${trip.id}: время возврата`,
+        text: `${label(trip)} · время возврата`,
         weight: 'Bolder',
         size: 'Medium',
         wrap: true,
       },
       {
         type: 'TextBlock',
-        text: `${period(trip)} · ${trip.route}`,
+        text: subline(trip),
         isSubtle: true,
         wrap: true,
         spacing: 'None',
@@ -391,7 +410,7 @@ export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
 /** К5: автору — накануне выезда, 17:00. */
 export function cardK5(trip: TripCardData, departure: string): unknown {
   return buildCard({
-    title: `Завтра поездка #${trip.id}`,
+    title: `Завтра: ${label(trip)}`,
     subtitle: trip.route,
     facts: [
       { title: 'Выезд', value: departure },
@@ -456,7 +475,7 @@ export function cardK6(counts: { issues: number; returns: number; overdue: numbe
 /** К15: автору и АХО — ключи не сданы. */
 export function cardK15(trip: TripCardData, returnBy: string): unknown {
   return buildCard({
-    title: `Поездка #${trip.id}: ключи не сданы`,
+    title: `${label(trip)} · ключи не сданы`,
     subtitle: trip.route,
     facts: [
       { title: 'Машина', value: trip.carLabel ?? '—' },
@@ -492,8 +511,8 @@ export function cardK12(
   docsRecheck: boolean,
 ): unknown {
   return buildCard({
-    title: `Поездка #${trip.id} ${CHANGE_LABEL[change]}`,
-    subtitle: change === 'cancelled' ? trip.route : `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · ${CHANGE_LABEL[change]}`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Что изменилось', value: details },
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
@@ -579,8 +598,8 @@ export function cardK13(
   actions.push({ kind: 'open', title: 'Открыть', tripId: trip.id });
 
   return buildCard({
-    title: `Поездка #${trip.id}: бронь затронута`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · бронь затронута`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Что случилось', value: reason },
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
@@ -610,8 +629,8 @@ export function cardK13(
 /** К9: автору — поездка закрыта. */
 export function cardK9(trip: TripCardData, distanceKm: number, odometerEndKm: number): unknown {
   return buildCard({
-    title: `Поездка #${trip.id} закрыта`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · закрыта`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Машина', value: trip.carLabel ?? '—' },
       { title: 'Пробег', value: `${distanceKm.toLocaleString('ru-RU')} км` },
@@ -638,7 +657,7 @@ export function cardK10(
     title: isRemark
       ? `Замечание по машине: ${trip.carLabel ?? '—'}`
       : `Примечание после поездки: ${trip.carLabel ?? '—'}`,
-    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Написал', value: author },
       { title: 'Текст', value: text || '—' },
@@ -683,7 +702,7 @@ export function cardK11Correction(
 ): unknown {
   return buildCard({
     title: `Одометр исправлен: ${trip.carLabel ?? '—'}`,
-    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Исправил', value: correctedBy },
       { title: 'Было', value: `${previousKm.toLocaleString('ru-RU')} км` },
@@ -714,7 +733,7 @@ export function cardK11(
 ): unknown {
   return buildCard({
     title: `Одометр меньше начального: ${trip.carLabel ?? '—'}`,
-    subtitle: `Поездка #${trip.id} · ${trip.route}`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Ввёл', value: enteredBy },
       { title: 'Начальное', value: `${startKm.toLocaleString('ru-RU')} км` },
@@ -734,8 +753,8 @@ export function cardK11(
  */
 export function cardK16(trip: TripCardData, driverState: string): unknown {
   return buildCard({
-    title: `Поездка #${trip.id}: водителя нет`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · водителя нет`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: `${trip.driverLabel ?? 'не назначен'} — ${driverState}` },
@@ -796,6 +815,9 @@ export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): u
   if (has('aho')) {
     actions.push({ kind: 'screen', title: 'Календарь', screen: 'calendar' });
   }
+
+  // Короткая инструкция последней: нужна один раз, но найтись должна сама.
+  actions.push({ kind: 'screen', title: 'Как пользоваться', screen: 'help' });
 
   const note = [
     'Сюда приходят бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
@@ -961,9 +983,9 @@ export function cardK14(
   return buildCard({
     title:
       reason === 'declined'
-        ? `Поездка #${trip.id}: водитель отказался`
-        : `Поездка #${trip.id}: от водителя нет ответа`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+        ? `${label(trip)} · водитель отказался`
+        : `${label(trip)} · от водителя нет ответа`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Водитель', value: driverName },
       {
@@ -990,8 +1012,8 @@ export function cardK14(
  */
 export function cardDriverLateConfirm(trip: TripCardData, driverName: string): unknown {
   return buildCard({
-    title: `Поездка #${trip.id}: водитель подтвердил`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `${label(trip)} · водитель подтвердил`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Водитель', value: driverName },
       { title: 'Что случилось', value: 'ответил позже 15 минут' },
@@ -1007,8 +1029,8 @@ export function cardK2(trip: TripCardData): unknown {
   const people = [trip.authorName, ...trip.participantNames].join(', ');
 
   return buildCard({
-    title: `Вас добавили в поездку #${trip.id}`,
-    subtitle: `${period(trip)} · ${trip.route}`,
+    title: `Вас добавили: ${label(trip)}`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Едут', value: people },
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },

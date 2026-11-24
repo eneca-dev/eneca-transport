@@ -220,7 +220,7 @@ export async function handleCardAction(
         return { message: 'Ключи уже выданы — отменять поздно, машину надо принять.', done: true };
       }
       return {
-        message: `Отменить поездку #${trip.id}?`,
+        message: `Отменить поездку №${trip.id}?`,
         done: false,
         reply: cardCancelConfirm(trip.id, trip.starts_at, trip.ends_at, trip.route),
       };

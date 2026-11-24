@@ -1,5 +1,8 @@
 import { DRIVER_CONFIRMATION_MINUTES } from '@/config/app';
 import { formatPeriod } from '@/lib/datetime';
+import { tripLabel, tripLabelFrom } from '@/modules/trips/tripLabel';
+
+import type { TripRef } from '@/modules/trips/tripLabel';
 
 /**
  * Тексты сообщений Telegram-бота водителя (Т1–Т6).
@@ -31,7 +34,7 @@ export interface AssignmentMessage {
  */
 export function messageT1(trip: AssignmentMessage): string {
   const lines = [
-    `Поездка #${trip.tripId}`,
+    `${tripLabel(trip.route, new Date(trip.startsAt), new Date(trip.endsAt))} · поездка №${trip.tripId}`,
     formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt)),
     trip.route,
     '',
@@ -93,12 +96,11 @@ export function messageDriverConfirmedByAho(trip: AssignmentMessage): string {
  */
 
 export function messageT5Odometer(
-  tripId: number,
-  route: string,
+  ref: TripRef,
   odometerStartKm: number,
   responsible: string | null = null,
 ): string {
-  const lines = [`Поездка #${tripId} ${route}. Время возврата.`];
+  const lines = [`${ref.label} · поездка №${ref.tripId}. Время возврата.`, ref.route];
 
   if (responsible) {
     lines.push(`Ответственный: ${responsible}.`);
@@ -147,8 +149,11 @@ export function messageT5TooLow(odometerStartKm: number): string {
 }
 
 /** Т6: поездка закрыта. */
-export function messageT6(tripId: number, distanceKm: number): string {
-  return `Поездка #${tripId} закрыта. Пробег ${distanceKm.toLocaleString('ru-RU')} км.`;
+export function messageT6(ref: TripRef, distanceKm: number): string {
+  return [
+    `${ref.label} закрыта. Пробег ${distanceKm.toLocaleString('ru-RU')} км.`,
+    `Поездка №${ref.tripId}.`,
+  ].join('\n');
 }
 
 export interface DriverTripLine {
@@ -178,9 +183,9 @@ export function messageMyTrips(trips: DriverTripLine[]): string {
 
   const lines = trips.map((trip) =>
     [
-      `#${trip.tripId} · ${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))}`,
-      `${trip.route}`,
-      `${trip.carLabel ?? 'машина не указана'} · ${trip.status}`,
+      `${tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)} · ${trip.status}`,
+      `${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} · ${trip.route}`,
+      `${trip.carLabel ?? 'машина не указана'} · №${trip.tripId}`,
     ].join('\n'),
   );
 
@@ -237,9 +242,9 @@ export function messageDriverDay(
 
   const blocks = trips.map((trip) => {
     const lines = [
-      `#${trip.tripId} · ${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))}`,
-      trip.route,
-      `${trip.carLabel ?? 'машина не указана'} · ${trip.status}`,
+      `${tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)} · ${trip.status}`,
+      `${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} · ${trip.route}`,
+      `${trip.carLabel ?? 'машина не указана'} · №${trip.tripId}`,
     ];
 
     if (trip.responsible) {
@@ -263,13 +268,17 @@ export function messageDriverFreeDay(dayLabel: string): string {
 
 /** Т3: накануне выезда, 17:00. */
 export function messageT3(
-  tripId: number,
-  route: string,
+  ref: TripRef,
   departure: string,
   carLabel: string | null,
   responsible: string | null = null,
 ): string {
-  const lines = [`Завтра поездка #${tripId} ${route}.`, '', `Выезд ${departure}.`];
+  const lines = [
+    `Завтра ${ref.label} · поездка №${ref.tripId}.`,
+    ref.route,
+    '',
+    `Выезд ${departure}.`,
+  ];
 
   lines.push(`Машина: ${carLabel ?? 'не указана'}.`);
 
@@ -285,12 +294,11 @@ export function messageT3(
 
 /** Т4: поездка изменена, отменена или водитель снят. */
 export function messageT4(
-  tripId: number,
-  route: string,
+  ref: TripRef,
   what: string,
   needsNewConfirmation: boolean,
 ): string {
-  const lines = [`Поездка #${tripId} ${route}: ${what}.`];
+  const lines = [`${ref.label} · поездка №${ref.tripId}: ${what}.`, ref.route];
 
   if (needsNewConfirmation) {
     lines.push('', 'Сейчас пришлю новый запрос подтверждения.');

@@ -5,17 +5,21 @@ import { usePathname } from 'next/navigation';
 import {
   CalendarDays,
   Car,
+  CircleQuestionMark,
   FileText,
   History,
   KeyRound,
   Route,
+  ShieldCheck,
   UserRound,
 } from 'lucide-react';
 
+import { useNavCounts } from '@/components/NavCounts';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
 import type { ReactNode } from 'react';
 import type { AppRole } from '@/modules/employees/queries';
+import type { NavCounts } from '@/modules/nav/queries';
 
 interface NavItem {
   href: string;
@@ -23,17 +27,32 @@ interface NavItem {
   icon: typeof Car;
   /** Пусто — виден всем. Иначе нужна одна из ролей. */
   roles?: AppRole[];
+  /** Какое число показать точкой. Пусто — в разделе нечего ждать. */
+  count?: keyof NavCounts;
 }
 
 // Разделы добавляются по мере готовности экранов: мёртвых ссылок в меню нет.
 const NAV: NavItem[] = [
-  { href: '/', label: 'Мои поездки', icon: Route },
+  { href: '/', label: 'Мои поездки', icon: Route, count: 'mine' },
   { href: '/calendar', label: 'Календарь', icon: CalendarDays, roles: ['aho'] },
-  { href: '/reception', label: 'Рецепция', icon: KeyRound, roles: ['reception', 'aho'] },
-  { href: '/documents', label: 'Документы', icon: FileText, roles: ['finance', 'aho'] },
-  { href: '/cars', label: 'Машины', icon: Car, roles: ['aho'] },
+  {
+    href: '/reception',
+    label: 'Рецепция',
+    icon: KeyRound,
+    roles: ['reception', 'aho'],
+    count: 'reception',
+  },
+  {
+    href: '/documents',
+    label: 'Документы',
+    icon: FileText,
+    roles: ['finance', 'aho'],
+    count: 'documents',
+  },
+  { href: '/cars', label: 'Машины', icon: Car, roles: ['aho'], count: 'cars' },
   { href: '/drivers', label: 'Водители', icon: UserRound, roles: ['aho'] },
   { href: '/history', label: 'История', icon: History, roles: ['aho'] },
+  { href: '/roles', label: 'Роли', icon: ShieldCheck, roles: ['aho'] },
 ];
 
 /** «Александра Бирило» → «АБ». Нужны первые буквы двух первых слов. */
@@ -52,6 +71,7 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const { employee } = useTeamsAuth();
+  const { counts } = useNavCounts();
   const pathname = usePathname();
 
   const items = NAV.filter(
@@ -73,7 +93,11 @@ export function AppShell({ children }: AppShellProps) {
                 У АХО разделов пять — на узком экране полоска прокручивается
                 вбок, а не сжимает названия до нечитаемых. */}
             <nav className="-mb-px flex min-w-0 overflow-x-auto">
-              {items.map(({ href, label, icon: Icon }) => {
+              {items.map(({ href, label, icon: Icon, count }) => {
+                // Число дел рядом с названием: так просрочка видна и из другого
+                // раздела. Точка гаснет, когда работа сделана, а не когда на
+                // неё посмотрели.
+                const waiting = count && counts ? counts[count] : 0;
                 // Новая поездка и карточка поездки живут под /trips, но по сути
                 // это раздел «Мои поездки» — закладка остаётся подсвеченной.
                 const active =
@@ -93,13 +117,38 @@ export function AppShell({ children }: AppShellProps) {
                   >
                     <Icon className="size-4 shrink-0" aria-hidden />
                     {label}
+                    {waiting > 0 && (
+                      <span
+                        className="inline-flex min-w-5 justify-center rounded-full bg-bad px-1.5 text-xs font-semibold text-bad-fg"
+                        aria-label={`дел: ${waiting}`}
+                      >
+                        {waiting}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
             </nav>
 
-            <div className="flex min-w-0 items-center gap-2" title={employee.upn}>
-              <span className="hidden truncate text-sm text-fg-soft sm:block">
+            <div className="flex min-w-0 items-center gap-2">
+              {/* Короткая инструкция рядом с именем: в полоске разделов она
+                  заняла бы место у того, чем пользуются каждый день. */}
+              <Link
+                href="/help"
+                aria-label="Как пользоваться"
+                title="Как пользоваться"
+                className={`shrink-0 rounded-md p-1.5 transition-colors ${
+                  pathname.startsWith('/help')
+                    ? 'text-brand-text'
+                    : 'text-fg-soft hover:text-fg'
+                }`}
+              >
+                <CircleQuestionMark className="size-4" aria-hidden />
+              </Link>
+              <span
+                className="hidden truncate text-sm text-fg-soft sm:block"
+                title={employee.upn}
+              >
                 {employee.displayName}
               </span>
               <span

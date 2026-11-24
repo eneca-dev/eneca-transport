@@ -27,7 +27,7 @@ export function conflictList(conflicts: ConflictingTrip[]): string {
       const what = item.kind === 'car' ? 'машина' : 'водитель';
       const when = formatPeriod(new Date(item.startsAt), new Date(item.endsAt));
 
-      return `#${item.id} (${when}, ${what})`;
+      return `№${item.id} (${when}, ${what})`;
     })
     .join(', ');
 
@@ -56,7 +56,7 @@ export interface TooSoon {
  */
 export function issueTooSoonReason(info: TooSoon): string {
   return (
-    `Машину приняли по поездке #${info.tripId} в ${formatTime(new Date(info.returnedAt))}. ` +
+    `Машину приняли по поездке №${info.tripId} в ${formatTime(new Date(info.returnedAt))}. ` +
     `Выдать её можно с ${formatTime(new Date(info.freeFrom))} — ` +
     'десять минут на приём и осмотр.'
   );

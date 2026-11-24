@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/AppShell';
+import { NavCountsProvider } from '@/components/NavCounts';
 import { TeamsAuthProvider } from '@/components/TeamsAuth';
 import { TeamsDeepLink } from '@/components/TeamsDeepLink';
 
@@ -15,7 +16,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     <>
       <TeamsDeepLink />
       <TeamsAuthProvider>
-        <AppShell>{children}</AppShell>
+        {/* Счётчики дел считаются внутри входа: без сотрудника их не посчитать,
+            а нужны они и полоске разделов, и первому экрану. */}
+        <NavCountsProvider>
+          <AppShell>{children}</AppShell>
+        </NavCountsProvider>
       </TeamsAuthProvider>
     </>
   );

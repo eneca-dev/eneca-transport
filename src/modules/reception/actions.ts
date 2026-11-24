@@ -126,7 +126,7 @@ export async function issueKeys(
     if ((busy ?? []).length > 0) {
       return {
         success: false,
-        error: `Машина ещё в поездке #${busy![0].id}. Сначала примите её.`,
+        error: `Машина ещё в поездке №${busy![0].id}. Сначала примите её.`,
       };
     }
 

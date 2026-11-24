@@ -9,6 +9,7 @@ import { listEmployeesByRole } from '@/modules/employees/queries';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import { listCarOptions, listDriverOptions } from './availability';
+import { tripRef } from './tripLabel';
 
 import type { BookingAffected, TripCardData, TripChange } from '@/lib/bots/cards';
 
@@ -186,7 +187,7 @@ export async function notifyTripChanged(
   await deliverOnce(entry, () =>
     sendTelegramMessage(
       chatId,
-      messageT4(tripId, trip.route, details, needsNewConfirmation),
+      messageT4(tripRef(trip), details, needsNewConfirmation),
       { withKeyboard: true },
     ),
   );
