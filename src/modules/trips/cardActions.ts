@@ -1,9 +1,12 @@
 import 'server-only';
 
+import { z } from 'zod';
+
+import { cardCancelConfirm } from '@/lib/bots/cards';
 import { getDb } from '@/config/supabase';
 import { decideRemark } from '@/modules/cars/remarks';
 import { notifyFinanceNewRequest } from '@/modules/documents/notify';
-import { cancelTrip, confirmForDriver } from './changeService';
+import { assignDriver, cancelTrip, changeCar, confirmForDriver } from './changeService';
 import { notifyTripChanged } from './notifyChange';
 import { submitReturn } from './returnService';
 import { setDocsReady } from '@/modules/documents/service';
@@ -26,6 +29,12 @@ export interface CardActionResult {
   message: string;
   /** Нужно ли перерисовать карточку: при отказе оставляем кнопки как были. */
   done: boolean;
+  /**
+   * Ответить новой карточкой, а не текстом. Нужно, чтобы задать вопрос: в
+   * адаптивной карточке нет своих диалогов, а браузерные Teams не показывает.
+   * Прежняя карточка при этом остаётся на месте.
+   */
+  reply?: unknown;
 }
 
 interface TripRow {
@@ -34,9 +43,14 @@ interface TripRow {
   author_id: string;
   needs_driver: boolean;
   keys_issued_at: string | null;
+  starts_at: string;
+  ends_at: string;
+  route: string;
 }
 
-/** «Поеду сам» по К16: назначение водителя снимается, бронь остаётся. */
+const idSchema = z.string().uuid();
+
+/** «Без водителя» по К16: назначение водителя снимается, бронь остаётся. */
 async function dropDriver(trip: TripRow, employeeId: string): Promise<CardActionResult> {
   if (!trip.needs_driver) {
     return { message: 'Поездка уже без водителя.', done: true };
@@ -112,17 +126,27 @@ async function submitReturnFromCard(
     note?: unknown;
   };
 
-  const digits = typeof odometer === 'string' ? odometer.replace(/D/g, '') : '';
+  // Лишнее убираем сами: человек пишет «85 136» или «85136 км». Вычищать надо
+  // всё нецифровое. Здесь стоял шаблон `/D/g` — он убирал только латинскую
+  // букву D, поэтому «85 136» превращалось в не-число, в базу уходило пустое
+  // значение, а карточка отвечала «показание записано».
+  const digits = typeof odometer === 'string' ? odometer.replace(/\D/g, '') : '';
 
   if (digits === '') {
-    return { message: 'Укажите показание одометра и отправьте снова.', done: false };
+    return { message: 'Укажите показание одометра числом и отправьте снова.', done: false };
+  }
+
+  const odometerKm = Number(digits);
+
+  if (!Number.isSafeInteger(odometerKm)) {
+    return { message: 'Это не похоже на показание одометра. Введите число заново.', done: false };
   }
 
   const outcome = await submitReturn(
     tripId,
     { employeeId },
     {
-      odometerKm: Number(digits),
+      odometerKm,
       conditionOk: condition !== 'remark',
       note: typeof note === 'string' ? note : '',
     },
@@ -164,7 +188,7 @@ export async function handleCardAction(
 
   const { data: trip, error } = await getDb()
     .from('trips')
-    .select('id, status, author_id, needs_driver, keys_issued_at')
+    .select('id, status, author_id, needs_driver, keys_issued_at, starts_at, ends_at, route')
     .eq('id', tripId)
     .maybeSingle<TripRow>();
 
@@ -178,6 +202,32 @@ export async function handleCardAction(
   const isAho = employee.roles.includes('aho');
 
   switch (action) {
+    /**
+     * «Отменить» в К1 — только вопрос, отмена идёт вторым нажатием.
+     *
+     * Своих диалогов в карточке нет, браузерные Teams не показывает, поэтому
+     * вопрос приходит отдельной карточкой. Прежняя карточка остаётся: если
+     * человек нажал случайно, он просто ничего больше не нажимает.
+     */
+    case 'trip_cancel_ask': {
+      if (trip.author_id !== employee.id && !isAho) {
+        return { message: 'Отменить поездку может автор или АХО.', done: false };
+      }
+      if (trip.status === 'cancelled') {
+        return { message: 'Поездка уже отменена.', done: true };
+      }
+      if (trip.keys_issued_at !== null) {
+        return { message: 'Ключи уже выданы — отменять поздно, машину надо принять.', done: true };
+      }
+      return {
+        message: `Отменить поездку #${trip.id}?`,
+        done: false,
+        reply: cardCancelConfirm(trip.id, trip.starts_at, trip.ends_at, trip.route),
+      };
+    }
+    case 'trip_cancel_abort': {
+      return { message: 'Хорошо, поездка остаётся в силе.', done: true };
+    }
     case 'trip_without_driver':
     case 'trip_cancel': {
       if (trip.author_id !== employee.id && !isAho) {
@@ -235,6 +285,49 @@ export async function handleCardAction(
             message:
               'Поездка подтверждена за водителя. Водитель получил сообщение в Telegram, ' +
               'в журнале заявки записано, что подтвердили вы.',
+            done: true,
+          }
+        : { message: outcome.reason, done: false };
+    }
+    /**
+     * «Выбрать другую» и «Назначить водителя» из К13.
+     *
+     * Список в карточке посчитан в момент отправки, поэтому выбранного могли
+     * занять. Проверяет это служба — та же, что за кнопками в карточке
+     * поездки, — и отвечает причиной отказа, не снимая кнопки.
+     */
+    case 'car_change': {
+      if (trip.author_id !== employee.id && !isAho) {
+        return { message: 'Машину меняет автор поездки или АХО.', done: false };
+      }
+      const { carId } = value as { carId?: unknown };
+      if (!idSchema.safeParse(carId).success) {
+        return { message: 'Выберите машину в списке и нажмите снова.', done: false };
+      }
+      const outcome = await changeCar(trip.id, employee.id, carId as string);
+      return outcome.ok
+        ? {
+            message:
+              'Машина заменена, бронь переехала на неё. ' +
+              'Финотдел проверит документы заново — в них указана машина.',
+            done: true,
+          }
+        : { message: outcome.reason, done: false };
+    }
+    case 'driver_assign': {
+      if (!isAho) {
+        return { message: 'Водителя назначает АХО.', done: false };
+      }
+      const { driverId } = value as { driverId?: unknown };
+      if (!idSchema.safeParse(driverId).success) {
+        return { message: 'Выберите водителя в списке и нажмите снова.', done: false };
+      }
+      const outcome = await assignDriver(trip.id, employee.id, driverId as string);
+      return outcome.ok
+        ? {
+            message:
+              'Водитель назначен. Ему ушёл запрос подтверждения на 15 минут, ' +
+              'финотдел проверит документы заново.',
             done: true,
           }
         : { message: outcome.reason, done: false };

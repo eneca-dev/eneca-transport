@@ -277,7 +277,8 @@ export function messageT3(
     lines.push(`Ответственный: ${responsible}.`);
   }
 
-  lines.push('Ключи у Виктории на рецепции.');
+  // Без имени: человек на рецепции меняется, а сообщения остаются.
+  lines.push('Ключи на рецепции.');
 
   return lines.join('\n');
 }

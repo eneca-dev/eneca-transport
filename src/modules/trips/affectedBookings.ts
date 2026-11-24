@@ -45,6 +45,7 @@ export async function warnAboutRepair(carId: string, since: string): Promise<num
         trip.id,
         `машина в ремонте с ${formatDay(new Date(`${since}T12:00:00+03:00`))}`,
         `repair:${since}`,
+        'car',
       );
     } catch (notifyError) {
       console.error(`Поездка #${trip.id}: К13 о ремонте не ушла`, notifyError);
@@ -107,6 +108,7 @@ export async function warnAboutDriverAway(
         trip.id,
         `водитель недоступен (${label}) с ${formatDay(new Date(`${since}T12:00:00+03:00`))} по ${formatDay(new Date(`${until}T12:00:00+03:00`))}`,
         `away:${since}:${until}`,
+        'driver',
       );
     } catch (notifyError) {
       console.error(`Поездка #${trip.id}: К13 о недоступности не ушла`, notifyError);

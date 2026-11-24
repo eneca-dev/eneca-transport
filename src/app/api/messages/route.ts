@@ -3,6 +3,7 @@ import { getTeamsAdapter } from '@/lib/bots/teamsAdapter';
 import { findEmployeeByOid } from '@/modules/employees/queries';
 import { rememberConversation } from '@/modules/employees/teamsConversation';
 import { handleCardAction } from '@/modules/trips/cardActions';
+import { teamsCommandReply } from '@/modules/trips/teamsCommands';
 
 import type { Activity } from 'botbuilder';
 
@@ -112,15 +113,49 @@ export async function POST(request: Request) {
             }
           }
 
-          await context.sendActivity(result.message);
+          // Вопрос приходит карточкой с кнопками: «Отменить поездку #97?».
+          // Остальное — обычным текстом.
+          if (result.reply) {
+            await context.sendActivity({
+              attachments: [
+                {
+                  contentType: 'application/vnd.microsoft.card.adaptive',
+                  content: result.reply,
+                },
+              ],
+            });
+          } else {
+            await context.sendActivity(result.message);
+          }
           return;
         }
       }
 
       if (context.activity.text) {
+        // Команда-подсказка под полем ввода приходит сюда обычным сообщением с
+        // её названием. «Мои поездки» получает список, «Новая поездка» —
+        // кнопку на форму заявки.
+        const reply = await teamsCommandReply(
+          from?.aadObjectId ?? null,
+          context.activity.text,
+        );
+
+        if (reply) {
+          await context.sendActivity({
+            attachments: [
+              {
+                contentType: 'application/vnd.microsoft.card.adaptive',
+                content: reply,
+              },
+            ],
+          });
+          return;
+        }
+
         // Бот не ведёт переписку: заявки оформляются во вкладке. Но объяснять
         // это текстом значит оставить человека искать вкладку самому, поэтому
-        // ответ — кнопки, которые её открывают.
+        // ответ — кнопки, которые её открывают. Эта же карточка отвечает на
+        // команду «Помощь».
         await sendWelcome();
       }
     });

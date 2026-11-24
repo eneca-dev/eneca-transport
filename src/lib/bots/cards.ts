@@ -22,6 +22,26 @@ export interface CardFact {
   value: string;
 }
 
+/** Строка выпадающего списка: машина или водитель. */
+export interface CardChoice {
+  id: string;
+  label: string;
+}
+
+/**
+ * Выпадающий список в карточке.
+ *
+ * Список свободных машин или водителей считается в момент отправки. Пока
+ * карточка лежит в чате, выбранного могут занять — тогда служба откажет с
+ * причиной, как на третьем шаге Э2. Это не ошибка карточки, а обычный ход.
+ */
+interface CardChoiceInput {
+  id: string;
+  label: string;
+  placeholder: string;
+  choices: CardChoice[];
+}
+
 interface CardOptions {
   title: string;
   /** Короткая строка под заголовком: даты и маршрут. */
@@ -29,6 +49,8 @@ interface CardOptions {
   facts: CardFact[];
   /** Текст после полей — объяснение или просьба. */
   note?: string;
+  /** Выпадающий список после текста. */
+  choice?: CardChoiceInput;
   actions?: CardAction[];
 }
 
@@ -67,7 +89,14 @@ function toAction(action: CardAction): Record<string, unknown> {
 }
 
 /** Общий каркас карточки. */
-export function buildCard({ title, subtitle, facts, note, actions }: CardOptions): unknown {
+export function buildCard({
+  title,
+  subtitle,
+  facts,
+  note,
+  choice,
+  actions,
+}: CardOptions): unknown {
   const body: Record<string, unknown>[] = [
     { type: 'TextBlock', text: title, weight: 'Bolder', size: 'Medium', wrap: true },
   ];
@@ -82,6 +111,20 @@ export function buildCard({ title, subtitle, facts, note, actions }: CardOptions
 
   if (note) {
     body.push({ type: 'TextBlock', text: note, wrap: true });
+  }
+
+  if (choice && choice.choices.length > 0) {
+    body.push({
+      type: 'Input.ChoiceSet',
+      id: choice.id,
+      label: choice.label,
+      placeholder: choice.placeholder,
+      // Выбор обязателен: без него нажатие означало бы «назначить первого в
+      // списке», чего человек не выбирал. Сервер проверяет это ещё раз.
+      isRequired: true,
+      errorMessage: 'Выберите из списка',
+      choices: choice.choices.map((item) => ({ title: item.label, value: item.id })),
+    });
   }
 
   return {
@@ -128,7 +171,55 @@ export function cardK1(trip: TripCardData): unknown {
     note: trip.driverLabel
       ? 'Водителю отправлен запрос подтверждения. Документы подготовит финотдел, ключи заберёте на рецепции перед выездом.'
       : 'Документы подготовит финотдел, ключи заберёте на рецепции перед выездом.',
-    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+    actions: [
+      { kind: 'open', title: 'Открыть', tripId: trip.id },
+      {
+        // Кнопка не отменяет сразу: в ответ приходит вопрос отдельной
+        // карточкой. Отмена освобождает бронь и рассылает К12 и Т4 — делать
+        // это от одного случайного нажатия в чате нельзя.
+        kind: 'submit',
+        title: 'Отменить',
+        style: 'destructive',
+        data: { action: 'trip_cancel_ask', tripId: trip.id },
+      },
+    ],
+  });
+}
+
+/**
+ * Вопрос перед отменой: приходит в ответ на «Отменить» в К1.
+ *
+ * Отдельной карточкой, а не вложенной: вложенные карточки и скрытые блоки в
+ * Teams ведут себя по-разному в разных клиентах, а замена карточки у нас уже
+ * работает и проверена. Прежняя карточка остаётся на месте — случайное
+ * нажатие ничего не меняет.
+ */
+export function cardCancelConfirm(
+  tripId: number,
+  startsAt: string,
+  endsAt: string,
+  route: string,
+): unknown {
+  return buildCard({
+    title: `Отменить поездку #${tripId}?`,
+    subtitle: `${formatPeriod(new Date(startsAt), new Date(endsAt))} · ${route}`,
+    facts: [],
+    note:
+      'Машина и водитель освободятся, участники, рецепция и финотдел получат уведомление. ' +
+      'Вернуть отменённую заявку нельзя — её придётся оформить заново.',
+    actions: [
+      {
+        kind: 'submit',
+        title: 'Да, отменить',
+        style: 'destructive',
+        data: { action: 'trip_cancel', tripId },
+      },
+      {
+        kind: 'submit',
+        title: 'Оставить',
+        data: { action: 'trip_cancel_abort', tripId },
+      },
+    ],
   });
 }
 
@@ -257,15 +348,11 @@ export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
         spacing: 'None',
       },
       {
-        type: 'Input.ChoiceSet',
-        id: 'condition',
-        label: 'Всё в порядке с машиной?',
-        style: 'expanded',
-        value: 'ok',
-        choices: [
-          { title: 'Да', value: 'ok' },
-          { title: 'Есть замечание', value: 'remark' },
-        ],
+        type: 'TextBlock',
+        text: 'Всё в порядке с машиной?',
+        weight: 'Bolder',
+        wrap: true,
+        spacing: 'Medium',
       },
       {
         type: 'Input.Text',
@@ -281,12 +368,21 @@ export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
         wrap: true,
       },
     ],
+    // Две кнопки вместо переключателя и «Отправить», как в требованиях: «Да,
+    // Есть замечание, Отправить». Ответ о состоянии машины приходит в данных
+    // нажатой кнопки, а поля карточки Teams присылает вместе с ними — поэтому
+    // одометр и примечание отправляются тем же нажатием.
     actions: [
       {
         type: 'Action.Submit',
-        title: 'Отправить',
+        title: 'Да, всё в порядке',
         style: 'positive',
-        data: { action: 'trip_return', tripId: trip.id },
+        data: { action: 'trip_return', tripId: trip.id, condition: 'ok' },
+      },
+      {
+        type: 'Action.Submit',
+        title: 'Есть замечание',
+        data: { action: 'trip_return', tripId: trip.id, condition: 'remark' },
       },
     ],
   };
@@ -302,7 +398,9 @@ export function cardK5(trip: TripCardData, departure: string): unknown {
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
     ],
-    note: 'Документы и ключи — у Виктории на рецепции перед выездом.',
+    // Имени сотрудника в тексте нет намеренно: человек на рецепции меняется,
+    // а сообщения остаются. То же правило, что с адресатом К14 — роль, не имя.
+    note: 'Документы и ключи — на рецепции перед выездом.',
     actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
   });
 }
@@ -408,13 +506,78 @@ export function cardK12(
   });
 }
 
+/** Чем затронута бронь: машину забрали в ремонт или водитель стал недоступен. */
+export interface BookingAffected {
+  kind: 'car' | 'driver';
+  /** Свободные на эти даты машины или водители — посчитаны при отправке. */
+  free: CardChoice[];
+  /**
+   * Список посчитать не удалось. Тогда нельзя писать «свободных нет»: человек
+   * перестанет искать замену, хотя она может быть.
+   */
+  unknownFree?: boolean;
+}
+
 /**
  * К13: автору и АХО — бронь затронута.
  *
- * Машину отправили в ремонт или водитель стал недоступен на эти даты.
- * Бронь при этом сохраняется: решение за человеком, а не за системой.
+ * Машину отправили в ремонт или водитель стал недоступен на эти даты. Бронь
+ * при этом сохраняется: решение за человеком, а не за системой.
+ *
+ * Замена выбирается прямо здесь, как требуют требования («Выбрать другую» и
+ * «Назначить водителя»). Список свободных считается при отправке: машин и
+ * водителей у компании единицы, и выпадающий список из трёх строк читается
+ * даже на телефоне. Водителя назначает только АХО — автору в этом случае
+ * остаётся «Открыть».
  */
-export function cardK13(trip: TripCardData, reason: string, forAho: boolean): unknown {
+export function cardK13(
+  trip: TripCardData,
+  reason: string,
+  forAho: boolean,
+  affected: BookingAffected,
+): unknown {
+  const mayChoose = affected.kind === 'car' || forAho;
+  const canChoose = mayChoose && affected.free.length > 0;
+
+  const note = ((): string => {
+    if (canChoose) {
+      return affected.kind === 'car'
+        ? 'Выберите другую машину из списка — бронь переедет на неё.'
+        : 'Назначьте другого водителя из списка — ему уйдёт запрос подтверждения.';
+    }
+    if (mayChoose && affected.unknownFree) {
+      return 'Кто свободен на эти даты — видно в заявке. Поездку можно также перенести или отменить.';
+    }
+    if (mayChoose) {
+      return affected.kind === 'car'
+        ? 'Свободных машин на эти даты нет. Откройте заявку — поездку можно перенести или отменить.'
+        : 'Свободных водителей на эти даты нет. Откройте заявку — поездку можно перенести или отменить.';
+    }
+    return 'Другого водителя назначит АХО. Откройте заявку, если поездку нужно перенести или отменить.';
+  })();
+
+  const actions: CardAction[] = [];
+
+  if (canChoose) {
+    actions.push(
+      affected.kind === 'car'
+        ? {
+            kind: 'submit',
+            title: 'Выбрать другую',
+            style: 'positive',
+            data: { action: 'car_change', tripId: trip.id },
+          }
+        : {
+            kind: 'submit',
+            title: 'Назначить водителя',
+            style: 'positive',
+            data: { action: 'driver_assign', tripId: trip.id },
+          },
+    );
+  }
+
+  actions.push({ kind: 'open', title: 'Открыть', tripId: trip.id });
+
   return buildCard({
     title: `Поездка #${trip.id}: бронь затронута`,
     subtitle: `${period(trip)} · ${trip.route}`,
@@ -424,10 +587,23 @@ export function cardK13(trip: TripCardData, reason: string, forAho: boolean): un
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
       { title: 'Автор', value: trip.authorName },
     ],
-    note: forAho
-      ? 'Назначьте другого водителя или машину в карточке поездки.'
-      : 'Выберите другую машину или водителя в карточке поездки, либо отмените заявку.',
-    actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
+    note,
+    choice: canChoose
+      ? affected.kind === 'car'
+        ? {
+            id: 'carId',
+            label: 'Свободные машины на эти даты',
+            placeholder: 'Выберите машину',
+            choices: affected.free,
+          }
+        : {
+            id: 'driverId',
+            label: 'Свободные водители на эти даты',
+            placeholder: 'Выберите водителя',
+            choices: affected.free,
+          }
+      : undefined,
+    actions,
   });
 }
 
@@ -564,11 +740,16 @@ export function cardK16(trip: TripCardData, driverState: string): unknown {
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: `${trip.driverLabel ?? 'не назначен'} — ${driverState}` },
     ],
-    note: 'Бронь автомобиля сохраняется, пока вы не решили. Поедете сами или отменить поездку?',
+    note:
+      'Бронь автомобиля сохраняется, пока вы не решили. ' +
+      'Поедете без водителя или отменить поездку?',
     actions: [
       {
         kind: 'submit',
-        title: 'Поеду сам',
+        // Название из требований. «Поеду сам» было понятнее как решение, но
+        // в журнале, в К12 и в Э3 это состояние называется «без водителя», и
+        // два названия одного и того же читались как разные вещи.
+        title: 'Без водителя',
         style: 'positive',
         data: { action: 'trip_without_driver', tripId: trip.id },
       },
@@ -636,6 +817,105 @@ export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): u
     facts: [],
     note: note.join('\n'),
     actions,
+  });
+}
+
+/** Строка списка поездок в ответе бота на команду «Мои поездки». */
+export interface TripLine {
+  id: number;
+  period: string;
+  route: string;
+  state: string;
+  /** Что требуется от того, кто спросил. `null` — ждут не его. */
+  waitingFor: string | null;
+}
+
+/**
+ * Ответ на команду «Мои поездки».
+ *
+ * Бот отвечает списком, а не кнопкой «откройте вкладку»: человек спросил
+ * «что у меня», и ответ должен быть ответом. Подробности и действия — во
+ * вкладке, ссылка на неё внизу.
+ *
+ * Показываются первые несколько: карточка на двадцать поездок не читается, а
+ * прокрутки в чате у неё нет.
+ */
+export function cardMyTrips(lines: TripLine[], hidden: number): unknown {
+  const body: Record<string, unknown>[] = [
+    {
+      type: 'TextBlock',
+      text: lines.length > 0 ? 'Ваши поездки' : 'Поездок за вами нет',
+      weight: 'Bolder',
+      size: 'Medium',
+      wrap: true,
+    },
+  ];
+
+  if (lines.length === 0) {
+    body.push({
+      type: 'TextBlock',
+      text: 'Оформить заявку можно во вкладке — кнопка ниже.',
+      wrap: true,
+      isSubtle: true,
+    });
+  }
+
+  for (const line of lines) {
+    body.push({
+      type: 'TextBlock',
+      text: `**#${line.id}** · ${line.period}`,
+      wrap: true,
+      spacing: 'Medium',
+    });
+    body.push({
+      type: 'TextBlock',
+      text: `${line.route} · ${line.state}`,
+      wrap: true,
+      isSubtle: true,
+      spacing: 'None',
+    });
+
+    if (line.waitingFor) {
+      body.push({
+        type: 'TextBlock',
+        text: `От вас: ${line.waitingFor}`,
+        wrap: true,
+        spacing: 'None',
+      });
+    }
+  }
+
+  if (hidden > 0) {
+    body.push({
+      type: 'TextBlock',
+      text: `И ещё ${hidden} — в разделе «Мои поездки».`,
+      wrap: true,
+      isSubtle: true,
+      spacing: 'Medium',
+    });
+  }
+
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: CARD_VERSION,
+    body,
+    actions: [
+      toAction({ kind: 'screen', title: 'Открыть список' }),
+      toAction({ kind: 'screen', title: 'Новая поездка', screen: 'new' }),
+    ],
+  };
+}
+
+/** Ответ на команду «Новая поездка». */
+export function cardNewTrip(): unknown {
+  return buildCard({
+    title: 'Новая поездка',
+    facts: [],
+    note:
+      'Заявка оформляется во вкладке: три шага — данные поездки, выбор машины и водителя, ' +
+      'проверка. Открыть её за вас я не могу, в Teams такого нет — нажмите кнопку.',
+    actions: [{ kind: 'screen', title: 'Открыть форму заявки', screen: 'new' }],
   });
 }
 

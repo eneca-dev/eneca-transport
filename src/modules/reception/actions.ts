@@ -21,6 +21,12 @@ import type { ReceptionDay } from './queries';
 
 const tripIdSchema = z.number().int().positive('Непонятный номер заявки');
 
+/** День, который рецепция открыла: «2026-11-24». Не задан — сегодня. */
+const daySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Непонятная дата')
+  .optional();
+
 function failure(error: unknown, fallback: string): ActionResult<never> {
   if (error instanceof AccessError) {
     return { success: false, error: error.message };
@@ -29,10 +35,19 @@ function failure(error: unknown, fallback: string): ActionResult<never> {
   return { success: false, error: fallback };
 }
 
-export async function loadReceptionDay(token: string): Promise<ActionResult<ReceptionDay>> {
+export async function loadReceptionDay(
+  token: string,
+  day?: string,
+): Promise<ActionResult<ReceptionDay>> {
   try {
     await requireRole(token, 'reception', 'aho');
-    return { success: true, data: await listReceptionDay() };
+
+    const parsed = daySchema.safeParse(day);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
+    }
+
+    return { success: true, data: await listReceptionDay(parsed.data) };
   } catch (error) {
     return failure(error, 'Не удалось загрузить экран рецепции.');
   }

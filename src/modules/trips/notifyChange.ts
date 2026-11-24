@@ -8,7 +8,9 @@ import { getDb } from '@/config/supabase';
 import { listEmployeesByRole } from '@/modules/employees/queries';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
-import type { TripCardData, TripChange } from '@/lib/bots/cards';
+import { listCarOptions, listDriverOptions } from './availability';
+
+import type { BookingAffected, TripCardData, TripChange } from '@/lib/bots/cards';
 
 /**
  * Уведомления об изменении заявки: К12 всем причастным, Т4 водителю, К13 когда
@@ -27,6 +29,7 @@ interface TripRow {
   contract: string;
   purpose: string;
   author_id: string;
+  car_id: string | null;
   driver_id: string | null;
   docs_recheck_required: boolean;
   cars: { plate: string; model: string } | null;
@@ -40,7 +43,7 @@ interface ParticipantRow {
 }
 
 const SELECT =
-  'id, starts_at, ends_at, route, contract, purpose, author_id, driver_id, ' +
+  'id, starts_at, ends_at, route, contract, purpose, author_id, car_id, driver_id, ' +
   'docs_recheck_required, cars(plate, model), drivers(full_name, telegram_chat_id), ' +
   'employees!trips_author_id_fkey(entra_oid, display_name)';
 
@@ -190,6 +193,48 @@ export async function notifyTripChanged(
 }
 
 /**
+ * Кто свободен на даты поездки — для списка замены прямо в К13.
+ *
+ * Своя бронь занятостью не считается, иначе список всегда пуст. Текущая машина
+ * или водитель из списка убираются: их и заменяют. Сбой запроса не отменяет
+ * саму К13 — АХО должна узнать, что бронь затронута, даже если список не
+ * посчитался.
+ */
+async function freeForTrip(trip: TripRow, kind: 'car' | 'driver'): Promise<BookingAffected> {
+  const startsAt = new Date(trip.starts_at);
+  const endsAt = new Date(trip.ends_at);
+  const options = { exceptTripId: trip.id };
+
+  try {
+    if (kind === 'car') {
+      const cars = await listCarOptions(startsAt, endsAt, options);
+      return {
+        kind,
+        free: cars
+          .filter((car) => car.blocked === null && car.id !== trip.car_id)
+          .map((car) => ({ id: car.id, label: `${car.model} ${car.plate}` })),
+      };
+    }
+
+    const drivers = await listDriverOptions(startsAt, endsAt, options);
+    return {
+      kind,
+      free: drivers
+        .filter((driver) => driver.blocked === null && driver.id !== trip.driver_id)
+        .map((driver) => ({
+          id: driver.id,
+          // Без привязки Telegram водитель не получит Т1, и АХО должна это
+          // видеть до того, как назначит его.
+          label: driver.telegramLinked ? driver.fullName : `${driver.fullName} — нет Telegram`,
+        })),
+    };
+  } catch (error) {
+    console.error(`Поездка #${trip.id}: не удалось посчитать свободных для К13`, error);
+    return { kind, free: [], unknownFree: true };
+  }
+}
+
+/**
  * К13: бронь затронута ремонтом машины или недоступностью водителя.
  *
  * Уходит автору и АХО. Бронь не трогаем: по требованиям она сохраняется, и
@@ -199,6 +244,7 @@ export async function notifyBookingAffected(
   tripId: number,
   reasonText: string,
   reasonKey: string,
+  kind: 'car' | 'driver',
 ): Promise<void> {
   const trip = await loadTrip(tripId);
 
@@ -208,6 +254,7 @@ export async function notifyBookingAffected(
 
   const data = toCardData(trip, []);
   const aho = await listEmployeesByRole('aho');
+  const affected = await freeForTrip(trip, kind);
 
   const targets: { person: Recipient; forAho: boolean }[] = [
     ...(trip.employees
@@ -236,7 +283,7 @@ export async function notifyBookingAffected(
           recipient: { employeeId: person.id },
           dedupeKey: `K13:trip:${tripId}:${reasonKey}:employee:${person.id}`,
         },
-        () => sendCard(person.id, person.entraOid, cardK13(data, reasonText, forAho)),
+        () => sendCard(person.id, person.entraOid, cardK13(data, reasonText, forAho, affected)),
       ),
     ),
   );
