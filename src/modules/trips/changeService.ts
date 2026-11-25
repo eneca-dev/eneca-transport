@@ -206,7 +206,7 @@ export async function rescheduleTrip(
   if (hasDriver) {
     await notifyDriverAssigned(tripId);
   }
-  await notifyFinanceNewRequest(tripId, `recheck:${now}`);
+  await notifyFinanceNewRequest(tripId, 'recheck');
 
   return { ok: true };
 }
@@ -293,7 +293,7 @@ export async function assignDriver(
   );
 
   await notifyDriverAssigned(tripId);
-  await notifyFinanceNewRequest(tripId, `recheck:driver:${now}`);
+  await notifyFinanceNewRequest(tripId, 'recheck');
 
   return { ok: true };
 }
@@ -519,7 +519,7 @@ export async function editTrip(
     `edited:${now}`,
   );
 
-  await notifyFinanceNewRequest(tripId, `recheck:edited:${now}`);
+  await notifyFinanceNewRequest(tripId, 'recheck');
 
   return { ok: true };
 }
@@ -584,7 +584,7 @@ export async function changeCar(
     `car:${carId}:${now}`,
   );
 
-  await notifyFinanceNewRequest(tripId, `recheck:car:${now}`);
+  await notifyFinanceNewRequest(tripId, 'recheck');
 
   return { ok: true };
 }

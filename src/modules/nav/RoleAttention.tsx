@@ -7,19 +7,24 @@ import { useNavCounts } from '@/components/NavCounts';
 import { counted } from '@/lib/plural';
 
 /**
- * «Требует внимания» на первом экране: что ждёт в служебных разделах.
+ * Что требует внимания по роли — на первом экране, двумя уровнями.
  *
- * Нужно тем, у кого есть роль: рецепция и финотдел не должны помнить, что надо
- * зайти в свой раздел и посмотреть, не появилось ли дело. Числа те же, что в
- * точках у разделов, и считаются из данных — строка исчезает, когда работа
- * сделана.
+ * Сверху проблемы **чужих** поездок, названные по имени: «Брест/23–24.11 ·
+ * машина не вернулась». Чужих — потому что своих в этом блоке нет: по ним
+ * проблема видна рамкой в строке списка ниже, и две записи об одной поездке на
+ * одном экране были бы повтором. Зато поездки, где человек ни автор, ни
+ * участник, в его списке не появятся вовсе, и сказать о них можно только здесь:
+ * невернувшаяся машина — дело рецепции, а не того, кто на ней ездил.
  *
- * Когда ждать нечего, блок не рисуется вовсе: «всё хорошо» каждый день
- * перестают читать за неделю, а вместе с ним перестают читать и то, где не
- * всё хорошо.
+ * Ниже спокойные числа по разделам серым — заявки в очереди, выдачи на вторую
+ * половину дня, замечания по машинам. Разделение нужно, потому что одинаково
+ * яркая метка на всём забирает внимание и перестаёт значить что-либо.
+ *
+ * Когда ждать нечего, блока нет вовсе: «всё хорошо» каждый день перестают
+ * читать за неделю, а вместе с ним перестают читать и то, где не всё хорошо.
  */
 
-interface Line {
+interface Chip {
   href: string;
   text: string;
 }
@@ -31,44 +36,80 @@ export function RoleAttention() {
     return null;
   }
 
-  const lines: Line[] = [];
+  const chips: Chip[] = [];
 
-  if (counts.reception > 0) {
-    lines.push({
-      href: '/reception',
-      text: `Рецепция: ${counted(counts.reception, ['дело', 'дела', 'дел'])}`,
-    });
+  // Спокойные числа пишутся действием, а не словом «дел»: «выдать 2» понятно
+  // без объяснений, «2 дела» — нет.
+  if (counts.reception.total > 0) {
+    const parts: string[] = [];
+    if (counts.reception.toIssue > 0) {
+      parts.push(`выдать ${counts.reception.toIssue}`);
+    }
+    if (counts.reception.toAccept > 0) {
+      parts.push(`принять ${counts.reception.toAccept}`);
+    }
+    chips.push({ href: '/reception', text: `Рецепция · ${parts.join(' · ')}` });
   }
-  if (counts.documents > 0) {
-    lines.push({
-      href: '/documents',
-      text: `Документы: ${counted(counts.documents, ['заявка', 'заявки', 'заявок'])}`,
-    });
+
+  if (counts.documents.total > 0) {
+    chips.push({ href: '/documents', text: `Документы · проверить ${counts.documents.total}` });
   }
-  if (counts.cars > 0) {
-    lines.push({
+
+  if (counts.cars.total > 0) {
+    chips.push({
       href: '/cars',
-      text: `Замечания по машинам: ${counts.cars}`,
+      text: `Машины · ${counted(counts.cars.total, ['замечание', 'замечания', 'замечаний'])}`,
     });
   }
 
-  if (lines.length === 0) {
+  // «Не выехали» — не срочное, а разбор: за ключами не пришли вовсе. Красным
+  // такое помечать нельзя, но и теряться оно не должно.
+  if (counts.reception.stale > 0) {
+    chips.push({
+      href: '/reception',
+      text: `Не выехали · ${counts.reception.stale}`,
+    });
+  }
+
+  if (counts.urgent.length === 0 && chips.length === 0) {
     return null;
   }
 
   return (
-    <ul className="mb-4 flex flex-wrap gap-2">
-      {lines.map((line) => (
-        <li key={line.href}>
-          <Link
-            href={line.href}
-            className="inline-flex items-center gap-1.5 rounded-md border border-bad-line bg-bad px-3 py-1.5 text-sm font-medium text-bad-fg transition-opacity hover:opacity-80"
-          >
-            {line.text}
-            <ArrowRight className="size-3.5" aria-hidden />
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <div className="mb-5">
+      {counts.urgent.length > 0 && (
+        <ul className="mb-3 space-y-2">
+          {counts.urgent.map((row) => (
+            <li key={row.tripId}>
+              <Link
+                href={row.href}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-bad-line bg-bad px-4 py-2.5 text-sm text-bad-fg transition-opacity hover:opacity-80"
+              >
+                <span className="font-semibold">{row.label}</span>
+                <span>· {row.what}</span>
+                {row.when && <span className="opacity-80">· {row.when}</span>}
+                <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {chips.length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {chips.map((chip) => (
+            <li key={chip.href}>
+              <Link
+                href={chip.href}
+                className="inline-flex items-center gap-1.5 rounded-md border border-line-strong bg-surface-soft px-3 py-1.5 text-sm text-fg-soft transition-colors hover:text-fg"
+              >
+                {chip.text}
+                <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

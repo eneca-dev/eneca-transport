@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState, useTransition } from 'react';
 
 import { BADGE, BADGE_DOT, BUTTON_PRIMARY_SM, BUTTON_SECONDARY } from '@/components/controls';
+import { useNavCounts } from '@/components/NavCounts';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatPeriod } from '@/lib/datetime';
 import { tripLabelFrom } from '@/modules/trips/tripLabel';
@@ -15,19 +16,27 @@ import type { DocumentQueueItem } from './queries';
 /** Э5 «Очередь документов». Ведёт финотдел, видит и АХО. */
 export function DocumentsScreen() {
   const { getToken } = useTeamsAuth();
+  const { refresh } = useNavCounts();
 
   const [queue, setQueue] = useState<DocumentQueueItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const run = useCallback(
-    (action: (token: string) => Promise<Awaited<ReturnType<typeof loadDocumentQueue>>>) => {
+    (
+      action: (token: string) => Promise<Awaited<ReturnType<typeof loadDocumentQueue>>>,
+      /** Это действие, а не чтение: после него метки надо пересчитать сразу. */
+      mutating = false,
+    ) => {
       startTransition(async () => {
         try {
           const result = await action(await getToken());
           if (result.success) {
             setQueue(result.data);
             setError(null);
+            if (mutating) {
+              refresh();
+            }
           } else {
             setError(result.error);
           }
@@ -36,7 +45,7 @@ export function DocumentsScreen() {
         }
       });
     },
-    [getToken],
+    [getToken, refresh],
   );
 
   useEffect(() => {
@@ -111,7 +120,7 @@ export function DocumentsScreen() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => run((token) => markDocsReady(token, trip.id))}
+                  onClick={() => run((token) => markDocsReady(token, trip.id), true)}
                   disabled={pending}
                   className={BUTTON_PRIMARY_SM}
                 >

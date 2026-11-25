@@ -82,10 +82,18 @@ async function loadTrip(tripId: number): Promise<{ trip: TripRow; data: TripCard
 /**
  * К3: сообщить финотделу о заявке.
  *
- * `attempt` отличает повторные проверки: при изменении заявки карточка должна
- * уйти снова, а ключ защиты от повтора уникален, поэтому в него входит повод.
+ * Повторная проверка склеивается по часу: автор, поправивший маршрут, потом
+ * договор, потом машину, не должен давать три карточки об одной поездке.
+ * Перечень изменений в карточке всё равно собирается целиком на момент
+ * отправки, поэтому склейка ничего не теряет.
  */
-export async function notifyFinanceNewRequest(tripId: number, attempt = 'new'): Promise<void> {
+export async function notifyFinanceNewRequest(
+  tripId: number,
+  kind: 'new' | 'recheck' = 'new',
+): Promise<void> {
+  const attempt =
+    kind === 'new' ? 'new' : `recheck:${new Date().toISOString().slice(0, 13)}`;
+
   const loaded = await loadTrip(tripId);
 
   if (!loaded) {

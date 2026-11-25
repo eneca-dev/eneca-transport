@@ -184,6 +184,67 @@ export function tripState(
 }
 
 /**
+ * Что произойдёт следующим шагом и от кого это зависит.
+ *
+ * Состояние отвечает на вопрос «что сейчас», а этого мало: человек хочет
+ * знать, чего ждать и когда беспокоиться. Без такой строки половина вопросов к
+ * АХО — «а что дальше-то?».
+ *
+ * Пишется от третьего лица, кроме шагов самого смотрящего: «финотдел готовит
+ * документы», но «заберите ключи». `null` — дальше ничего не будет: поездка
+ * закрыта или отменена.
+ */
+export function nextStep(
+  trip: TripFacts,
+  viewer: Viewer = NOBODY,
+  now: Date = new Date(),
+): string | null {
+  if (trip.status === 'cancelled' || trip.status === 'closed') {
+    return null;
+  }
+
+  if (trip.status === 'in_trip') {
+    if (trip.odometerEndKm !== null) {
+      return 'рецепция принимает ключи — после этого поездка закроется';
+    }
+    if (!trip.needsDriver) {
+      return viewer.isAuthor
+        ? 'при возврате передайте показание одометра'
+        : 'автор передаёт показание одометра при возврате';
+    }
+    return 'водитель передаёт показание одометра при возврате';
+  }
+
+  if (trip.needsDriver) {
+    if (trip.driverConfirmation === 'declined') {
+      return 'АХО назначает другого водителя';
+    }
+    if (trip.driverConfirmation === 'timeout') {
+      return 'АХО связывается с водителем';
+    }
+    if (trip.driverConfirmation === 'pending') {
+      return 'водитель подтверждает поездку';
+    }
+  }
+
+  if (trip.docsRecheckRequired) {
+    return 'финотдел проверяет документы заново';
+  }
+
+  if (trip.docsReadyAt === null) {
+    return 'финотдел готовит документы';
+  }
+
+  if (trip.keysIssuedAt === null) {
+    const departed = new Date(trip.startsAt).getTime() <= now.getTime();
+    const where = viewer.isAuthor ? 'заберите документы и ключи на рецепции' : 'выдача ключей на рецепции';
+    return departed ? `${where} — время выезда наступило` : where;
+  }
+
+  return null;
+}
+
+/**
  * Подтверждение водителя отдельной меткой в карточке поездки.
  *
  * В списке оно уже входит в состояние, а в Э3 показывается рядом с именем

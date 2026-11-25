@@ -11,6 +11,7 @@ import {
   BUTTON_SECONDARY,
   FIELD,
 } from '@/components/controls';
+import { useNavCounts } from '@/components/NavCounts';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 import { APP_TIMEZONE } from '@/config/app';
 import { formatMoment, formatTime } from '@/lib/datetime';
@@ -98,7 +99,14 @@ function people(trip: ReceptionTrip): string {
 
 /** От кого ждут показание одометра: за рулём был водитель или сам автор. */
 function odometerFrom(trip: ReceptionTrip): string {
-  return trip.needsDriver && trip.driverName ? trip.driverName : trip.authorName;
+  if (trip.needsDriver && trip.driverName) {
+    // Телефон водителя — чтобы звонить сразу, а не искать его в справочнике.
+    // Телефонов сотрудников в приложении нет, поэтому у автора его не будет.
+    return trip.driverPhone
+      ? `${trip.driverName}, ${trip.driverPhone}`
+      : trip.driverName;
+  }
+  return trip.authorName;
 }
 
 /** Состояние поездки на другой день: вместо кнопки, которой там нет. */
@@ -153,6 +161,7 @@ function Row({ trip, time, detail, action }: RowProps) {
 
 export function ReceptionScreen() {
   const { getToken } = useTeamsAuth();
+  const { refresh } = useNavCounts();
 
   // Так же, как период по умолчанию в Э7: дата считается при первой отрисовке.
   // Если вкладку не закрывать до полуночи, сегодняшним останется прежний день —
@@ -165,13 +174,20 @@ export function ReceptionScreen() {
   const [pending, startTransition] = useTransition();
 
   const run = useCallback(
-    (action: (token: string) => Promise<Awaited<ReturnType<typeof loadReceptionDay>>>) => {
+    (
+      action: (token: string) => Promise<Awaited<ReturnType<typeof loadReceptionDay>>>,
+      /** Это действие, а не чтение: после него метки надо пересчитать сразу. */
+      mutating = false,
+    ) => {
       startTransition(async () => {
         try {
           const result = await action(await getToken());
           if (result.success) {
             setData(result.data);
             setError(null);
+            if (mutating) {
+              refresh();
+            }
           } else {
             setError(result.error);
           }
@@ -180,7 +196,7 @@ export function ReceptionScreen() {
         }
       });
     },
-    [getToken],
+    [getToken, refresh],
   );
 
   useEffect(() => {
@@ -194,7 +210,7 @@ export function ReceptionScreen() {
   const acceptButton = (trip: ReceptionTrip): ReactNode => (
     <button
       type="button"
-      onClick={() => run((token) => acceptTripKeys(token, trip.id))}
+      onClick={() => run((token) => acceptTripKeys(token, trip.id), true)}
       disabled={pending || trip.odometerEndKm === null}
       className={BUTTON_PRIMARY_SM}
       title={trip.odometerEndKm === null ? 'Сначала нужно показание одометра' : undefined}
@@ -343,7 +359,7 @@ export function ReceptionScreen() {
                   live ? (
                     <button
                       type="button"
-                      onClick={() => run((token) => issueKeys(token, trip.id))}
+                      onClick={() => run((token) => issueKeys(token, trip.id), true)}
                       disabled={pending || !trip.docsReady}
                       className={BUTTON_PRIMARY_SM}
                       // Без готовых документов выдавать нечего: рецепция выдаёт
@@ -381,6 +397,29 @@ export function ReceptionScreen() {
               />
             ))}
           </Section>
+
+          {/* «Не выехали» внизу и серым: за ключами не пришли, работа на
+              сегодня этим не становится, но и теряться такие заявки не должны. */}
+          <Section title="Не выехали" empty="" count={data.stale.length} hideWhenEmpty>
+            {data.stale.map((trip) => (
+              <Row
+                key={trip.id}
+                trip={trip}
+                detail={
+                  <p className="mt-0.5 text-sm text-fg-soft">
+                    Выезд был {formatMoment(new Date(trip.startsAt))} · за ключами не пришли
+                  </p>
+                }
+              />
+            ))}
+          </Section>
+
+          {live && data.stale.length > 0 && (
+            <p className="mt-2 text-xs text-fg-soft">
+              Если поездка не состоялась, её стоит отменить в заявке: иначе она останется в истории
+              незакрытой, а машина — числиться занятой на то время.
+            </p>
+          )}
 
           {live && (
             <p className="mt-6 text-xs text-fg-soft">

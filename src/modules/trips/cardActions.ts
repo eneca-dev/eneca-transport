@@ -96,7 +96,7 @@ async function dropDriver(trip: TripRow, employeeId: string): Promise<CardAction
     'Водитель не нужен — автор поедет сам',
     'driver_dropped',
   );
-  await notifyFinanceNewRequest(trip.id, `recheck:driver-dropped:${Date.now()}`);
+  await notifyFinanceNewRequest(trip.id, 'recheck');
 
   return {
     message: [

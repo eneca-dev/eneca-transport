@@ -24,6 +24,8 @@ export interface TripListItem {
   endsAt: string;
   route: string;
   needsDriver: boolean;
+  /** Нужен проверке «машина не вернулась из предыдущей поездки». */
+  carId: string | null;
   carPlate: string | null;
   carModel: string | null;
   driverName: string | null;
@@ -68,6 +70,7 @@ interface TripRow {
   id: number;
   status: TripStatus;
   author_id: string;
+  car_id: string | null;
   starts_at: string;
   ends_at: string;
   route: string;
@@ -93,7 +96,7 @@ interface TripRow {
 // Связь с автором указывается по имени внешнего ключа: из trips есть ссылки и на
 // автора, и на тех, кто выдал ключи, принял их и отменил поездку.
 const TRIP_SELECT =
-  'id, status, author_id, starts_at, ends_at, route, contract, purpose, needs_driver, ' +
+  'id, status, author_id, car_id, starts_at, ends_at, route, contract, purpose, needs_driver, ' +
   'driver_confirmation, distance_km, docs_ready_at, docs_recheck_required, ' +
   'keys_issued_at, keys_returned_at, odometer_start_km, odometer_end_km, ' +
   'condition_ok, return_note, cancelled_at, ' +
@@ -107,6 +110,7 @@ function toListItem(row: TripRow, viewerId: string): TripListItem {
     endsAt: row.ends_at,
     route: row.route,
     needsDriver: row.needs_driver,
+    carId: row.car_id,
     carPlate: row.cars?.plate ?? null,
     carModel: row.cars?.model ?? null,
     driverName: row.drivers?.full_name ?? null,

@@ -19,7 +19,7 @@ import { useTeamsAuth } from '@/components/TeamsAuth';
 
 import type { ReactNode } from 'react';
 import type { AppRole } from '@/modules/employees/queries';
-import type { NavCounts } from '@/modules/nav/queries';
+import type { CountedSection } from '@/modules/nav/queries';
 
 interface NavItem {
   href: string;
@@ -27,8 +27,8 @@ interface NavItem {
   icon: typeof Car;
   /** Пусто — виден всем. Иначе нужна одна из ролей. */
   roles?: AppRole[];
-  /** Какое число показать точкой. Пусто — в разделе нечего ждать. */
-  count?: keyof NavCounts;
+  /** Какое число показать у названия. Пусто — в разделе нечего ждать. */
+  count?: CountedSection;
 }
 
 // Разделы добавляются по мере готовности экранов: мёртвых ссылок в меню нет.
@@ -94,10 +94,12 @@ export function AppShell({ children }: AppShellProps) {
                 вбок, а не сжимает названия до нечитаемых. */}
             <nav className="-mb-px flex min-w-0 overflow-x-auto">
               {items.map(({ href, label, icon: Icon, count }) => {
-                // Число дел рядом с названием: так просрочка видна и из другого
-                // раздела. Точка гаснет, когда работа сделана, а не когда на
-                // неё посмотрели.
-                const waiting = count && counts ? counts[count] : 0;
+                // Число рядом с названием: так работа видна и из другого
+                // раздела. Красным — только если внутри есть срочное; обычное
+                // дело помечается спокойным серым.
+                const section = count && counts ? counts[count] : null;
+                const waiting = section?.total ?? 0;
+                const urgent = (section?.urgent ?? 0) > 0;
                 // Новая поездка и карточка поездки живут под /trips, но по сути
                 // это раздел «Мои поездки» — закладка остаётся подсвеченной.
                 const active =
@@ -119,8 +121,12 @@ export function AppShell({ children }: AppShellProps) {
                     {label}
                     {waiting > 0 && (
                       <span
-                        className="inline-flex min-w-5 justify-center rounded-full bg-bad px-1.5 text-xs font-semibold text-bad-fg"
-                        aria-label={`дел: ${waiting}`}
+                        className={`inline-flex min-w-5 justify-center rounded-full px-1.5 text-xs font-semibold ${
+                          urgent
+                            ? 'bg-bad text-bad-fg'
+                            : 'border border-line-strong bg-surface-soft text-fg-soft'
+                        }`}
+                        aria-label={`ждут: ${waiting}${urgent ? ', есть срочное' : ''}`}
                       >
                         {waiting}
                       </span>

@@ -408,18 +408,22 @@ export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
 }
 
 /** К5: автору — накануне выезда, 17:00. */
-export function cardK5(trip: TripCardData, departure: string): unknown {
+export function cardK5(trip: TripCardData, departure: string, docsReady: boolean): unknown {
   return buildCard({
     title: `Завтра: ${label(trip)}`,
-    subtitle: trip.route,
+    subtitle: subline(trip),
     facts: [
       { title: 'Выезд', value: departure },
       { title: 'Машина', value: trip.carLabel ?? 'не выбрана' },
       { title: 'Водитель', value: trip.driverLabel ?? 'без водителя' },
+      // Главное в этой карточке: из-за документов человек утром не уедет.
+      { title: 'Документы', value: docsReady ? 'готовы' : 'ещё готовят' },
     ],
     // Имени сотрудника в тексте нет намеренно: человек на рецепции меняется,
     // а сообщения остаются. То же правило, что с адресатом К14 — роль, не имя.
-    note: 'Документы и ключи — на рецепции перед выездом.',
+    note: docsReady
+      ? 'Документы и ключи — на рецепции перед выездом.'
+      : 'Документы ещё не готовы, а без них ключи не выдают. Если выезд ранний, напомните финотделу сегодня.',
     actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
   });
 }
@@ -429,8 +433,15 @@ export function cardK5(trip: TripCardData, departure: string): unknown {
  *
  * Не про одну поездку, поэтому вместо полей — цифры по дню. Открывать по
  * одной карточке на каждую выдачу значит завалить рецепцию с утра.
+ *
+ * Просроченные при этом названы по имени, а не посчитаны: «просрочено 2»
+ * заставляет открыть экран, чтобы понять, о каких машинах речь, а это первое,
+ * что рецепция хочет знать с утра.
  */
-export function cardK6(counts: { issues: number; returns: number; overdue: number }): unknown {
+export function cardK6(
+  counts: { issues: number; returns: number; overdue: number },
+  overdueLabels: string[] = [],
+): unknown {
   const body: Record<string, unknown>[] = [
     {
       type: 'TextBlock',
@@ -450,10 +461,17 @@ export function cardK6(counts: { issues: number; returns: number; overdue: numbe
   ];
 
   if (counts.overdue > 0) {
+    const named = overdueLabels.slice(0, 3);
+    const rest = counts.overdue - named.length;
+
     body.push({
       type: 'TextBlock',
-      text: 'Есть незакрытые поездки с прошлых дней — они в отдельном списке на экране.',
+      text:
+        named.length > 0
+          ? `Не вернулись: ${named.join(', ')}${rest > 0 ? ` и ещё ${rest}` : ''}.`
+          : 'Есть незакрытые поездки с прошлых дней — они в отдельном списке на экране.',
       wrap: true,
+      weight: 'Bolder',
     });
   }
 
@@ -473,16 +491,21 @@ export function cardK6(counts: { issues: number; returns: number; overdue: numbe
 }
 
 /** К15: автору и АХО — ключи не сданы. */
-export function cardK15(trip: TripCardData, returnBy: string): unknown {
+export function cardK15(trip: TripCardData, returnBy: string, odometerIn: boolean): unknown {
   return buildCard({
-    title: `${label(trip)} · ключи не сданы`,
-    subtitle: trip.route,
+    title: odometerIn
+      ? `${label(trip)} · ключи ждут приёма`
+      : `${label(trip)} · ключи не сданы`,
+    subtitle: subline(trip),
     facts: [
       { title: 'Машина', value: trip.carLabel ?? '—' },
       { title: 'Вернуть надо было', value: returnBy },
       { title: 'Ответственный', value: trip.authorName },
+      { title: 'Одометр', value: odometerIn ? 'передан' : 'не передан' },
     ],
-    note: 'Машина числится занятой, пока ключи не приняты на рецепции.',
+    note: odometerIn
+      ? 'Показание уже передано — осталось принять ключи на рецепции.'
+      : 'Машина числится занятой, пока ключи не приняты на рецепции.',
     actions: [{ kind: 'open', title: 'Открыть', tripId: trip.id }],
   });
 }

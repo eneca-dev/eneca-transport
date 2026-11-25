@@ -15,7 +15,7 @@ import { listEmployeesByRole } from '@/modules/employees/queries';
 import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
 
 import { isMinskWeekend, minskDayBounds, minskHour, toMinskDate } from './booking';
-import { tripRef } from './tripLabel';
+import { tripLabelFrom, tripRef } from './tripLabel';
 
 import type { TripCardData } from '@/lib/bots/cards';
 
@@ -37,6 +37,9 @@ interface TripRow {
   purpose: string;
   author_id: string;
   driver_id: string | null;
+  docs_ready_at: string | null;
+  docs_recheck_required: boolean;
+  odometer_end_km: number | null;
   cars: { plate: string; model: string } | null;
   drivers: { full_name: string; telegram_chat_id: number | null } | null;
   employees: { entra_oid: string; display_name: string } | null;
@@ -44,6 +47,7 @@ interface TripRow {
 
 const SELECT =
   'id, starts_at, ends_at, route, contract, purpose, author_id, driver_id, ' +
+  'docs_ready_at, docs_recheck_required, odometer_end_km, ' +
   'cars(plate, model), drivers(full_name, telegram_chat_id), ' +
   'employees!trips_author_id_fkey(entra_oid, display_name)';
 
@@ -103,7 +107,16 @@ async function remindDayBefore(now: Date): Promise<number> {
           recipient: { employeeId: trip.author_id },
           dedupeKey: `K5:trip:${trip.id}`,
         },
-        () => sendCard(trip.author_id, author.entra_oid, cardK5(toCardData(trip), departure)),
+        () =>
+          sendCard(
+            trip.author_id,
+            author.entra_oid,
+            cardK5(
+              toCardData(trip),
+              departure,
+              trip.docs_ready_at !== null && !trip.docs_recheck_required,
+            ),
+          ),
       );
     }
 
@@ -164,9 +177,9 @@ async function remindReception(now: Date): Promise<number> {
 
   const inTrip = await db
     .from('trips')
-    .select('id, ends_at')
+    .select('id, starts_at, ends_at, route')
     .eq('status', 'in_trip')
-    .returns<{ id: number; ends_at: string }[]>();
+    .returns<{ id: number; starts_at: string; ends_at: string; route: string }[]>();
 
   if (issues.error || inTrip.error) {
     throw new Error(
@@ -174,12 +187,14 @@ async function remindReception(now: Date): Promise<number> {
     );
   }
 
+  const overdue = (inTrip.data ?? []).filter((row) => row.ends_at < nowIso);
+
   const counts = {
     issues: (issues.data ?? []).length,
     returns: (inTrip.data ?? []).filter(
       (row) => row.ends_at >= nowIso && row.ends_at < to.toISOString(),
     ).length,
-    overdue: (inTrip.data ?? []).filter((row) => row.ends_at < nowIso).length,
+    overdue: overdue.length,
   };
 
   if (counts.issues + counts.returns + counts.overdue === 0) {
@@ -188,7 +203,10 @@ async function remindReception(now: Date): Promise<number> {
 
   const day = toMinskDate(now);
   const recipients = await listEmployeesByRole('reception');
-  const card = cardK6(counts);
+  const card = cardK6(
+    counts,
+    overdue.map((row) => tripLabelFrom(row.route, row.starts_at, row.ends_at)),
+  );
 
   for (const person of recipients) {
     await deliverOnce(
@@ -280,14 +298,25 @@ async function remindOverdue(now: Date): Promise<number> {
   const aho = await listEmployeesByRole('aho');
 
   for (const trip of trips) {
-    const card = cardK15(toCardData(trip), formatMoment(new Date(trip.ends_at)));
+    /**
+     * Показание передано — автор сделал всё, что мог.
+     *
+     * Прежде К15 уходила ему каждое утро с текстом «ключи не сданы», хотя
+     * сдать их он уже не может: ключи принимает рецепция. Упрекать человека за
+     * чужую работу нельзя, поэтому в этом случае напоминание остаётся АХО —
+     * она за этим и следит.
+     */
+    const odometerIn = trip.odometer_end_km !== null;
+    const withAuthor = trip.employees !== null && !odometerIn;
+
+    const card = cardK15(toCardData(trip), formatMoment(new Date(trip.ends_at)), odometerIn);
 
     const recipients = [
-      ...(trip.employees
+      ...(withAuthor && trip.employees
         ? [{ id: trip.author_id, entraOid: trip.employees.entra_oid }]
         : []),
       ...aho
-        .filter((person) => person.id !== trip.author_id)
+        .filter((person) => !withAuthor || person.id !== trip.author_id)
         .map((person) => ({ id: person.id, entraOid: person.entraOid })),
     ];
 

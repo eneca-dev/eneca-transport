@@ -19,12 +19,15 @@ import { minskDayBounds, toMinskDate } from '@/modules/trips/booking';
 export interface ReceptionTrip {
   id: number;
   status: string;
+  carId: string | null;
   startsAt: string;
   endsAt: string;
   route: string;
   authorName: string;
   carLabel: string | null;
   driverName: string | null;
+  /** Телефон водителя: рецепции звонить, когда машина не вернулась. */
+  driverPhone: string | null;
   needsDriver: boolean;
   /** Документы готовы и не требуют повторной проверки. */
   docsReady: boolean;
@@ -50,6 +53,13 @@ export interface ReceptionDay {
   early: ReceptionTrip[];
   /** Поездки, у которых плановое время возврата прошло, а ключи не сданы. */
   overdue: ReceptionTrip[];
+  /**
+   * Выезд был раньше сегодняшнего дня, а ключи так и не выдали.
+   *
+   * Это не работа рецепции, а мусор: за ключами не пришли. Без отдельного
+   * списка такие заявки оставались в «Выдаче» навсегда и раздували счётчик.
+   */
+  stale: ReceptionTrip[];
 }
 
 interface Row {
@@ -67,14 +77,14 @@ interface Row {
   car_id: string | null;
   driver_id: string | null;
   cars: { plate: string; model: string } | null;
-  drivers: { full_name: string } | null;
+  drivers: { full_name: string; phone: string | null } | null;
   employees: { display_name: string } | null;
 }
 
 const SELECT =
   'id, status, starts_at, ends_at, route, needs_driver, docs_ready_at, docs_recheck_required, ' +
   'keys_issued_at, odometer_start_km, odometer_end_km, car_id, driver_id, ' +
-  'cars(plate, model), drivers(full_name), employees!trips_author_id_fkey(display_name)';
+  'cars(plate, model), drivers(full_name, phone), employees!trips_author_id_fkey(display_name)';
 
 /** Заявки, которых на экране нет вовсе: черновик никто не заводил, отмена не едет. */
 const VISIBLE_STATUSES = ['booked', 'docs_ready', 'in_trip', 'closed'];
@@ -83,12 +93,14 @@ function toTrip(row: Row): ReceptionTrip {
   return {
     id: row.id,
     status: row.status,
+    carId: row.car_id,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     route: row.route,
     authorName: row.employees?.display_name ?? '—',
     carLabel: row.cars ? `${row.cars.model} ${row.cars.plate}` : null,
     driverName: row.drivers?.full_name ?? null,
+    driverPhone: row.drivers?.phone ?? null,
     needsDriver: row.needs_driver,
     docsReady: row.docs_ready_at !== null && !row.docs_recheck_required,
     docsRecheckRequired: row.docs_recheck_required,
@@ -141,6 +153,7 @@ async function listPlannedDay(day: string): Promise<ReceptionDay> {
     returns: (returns.data ?? []).map(toTrip),
     early: [],
     overdue: [],
+    stale: [],
   };
 }
 
@@ -158,22 +171,38 @@ export async function listReceptionDay(day?: string, now = new Date()): Promise<
   }
 
   const db = getDb();
-  const { to } = minskDayBounds(now);
+  const { from, to } = minskDayBounds(now);
   const nowIso = now.toISOString();
+  const startOfDay = from.toISOString();
   const endOfDay = to.toISOString();
 
-  // Выдачи: всё, чей выезд уже наступил или наступит сегодня, но ключи не
-  // выданы. Прошедшие не убираем — иначе забытая выдача исчезнет с экрана.
+  // Выдачи: сегодняшние выезды, по которым ключи не выданы. Прошедшие часы
+  // сегодняшнего дня остаются — за ключами могли опоздать на час.
   const issues = await db
     .from('trips')
     .select(SELECT)
     .in('status', ['booked', 'docs_ready'])
+    .gte('starts_at', startOfDay)
     .lt('starts_at', endOfDay)
     .order('starts_at')
     .returns<Row[]>();
 
   if (issues.error) {
     throw new Error(`Не удалось прочитать выдачи: ${issues.error.message}`);
+  }
+
+  // За ключами не пришли вовсе: выезд был раньше сегодняшнего дня. Держать их
+  // в «Выдаче» нельзя — они там копятся и выглядят как работа на сегодня.
+  const stale = await db
+    .from('trips')
+    .select(SELECT)
+    .in('status', ['booked', 'docs_ready'])
+    .lt('starts_at', startOfDay)
+    .order('starts_at')
+    .returns<Row[]>();
+
+  if (stale.error) {
+    throw new Error(`Не удалось прочитать невыехавшие: ${stale.error.message}`);
   }
 
   const inTrip = await db
@@ -209,5 +238,13 @@ export async function listReceptionDay(day?: string, now = new Date()): Promise<
     }
   }
 
-  return { day: today, isToday: true, issues: (issues.data ?? []).map(toTrip), returns, early, overdue };
+  return {
+    day: today,
+    isToday: true,
+    issues: (issues.data ?? []).map(toTrip),
+    returns,
+    early,
+    overdue,
+    stale: (stale.data ?? []).map(toTrip),
+  };
 }

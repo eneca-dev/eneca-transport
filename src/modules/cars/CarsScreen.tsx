@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useTransition } from 'react';
 import { Plus } from 'lucide-react';
 
 import { BUTTON_PRIMARY_SM } from '@/components/controls';
+import { useNavCounts } from '@/components/NavCounts';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 
 import {
@@ -25,6 +26,7 @@ import type { Car } from './queries';
 /** Э8 «Машины». Справочник ведёт АХО. */
 export function CarsScreen() {
   const { getToken } = useTeamsAuth();
+  const { refresh } = useNavCounts();
 
   const [cars, setCars] = useState<Car[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +162,7 @@ export function CarsScreen() {
                 }}
                 onFinishRepair={() => run((token) => finishRepair(token, car.id))}
                 onDecideRemark={(tripId, decision) =>
-                  run((token) => decideCarRemark(token, tripId, decision))
+                  run((token) => decideCarRemark(token, tripId, decision), refresh)
                 }
               />
             );

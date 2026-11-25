@@ -1,6 +1,10 @@
 import 'server-only';
 
-import { DRIVER_CONFIRMATION_MINUTES, URGENT_DEPARTURE_HOURS } from '@/config/app';
+import {
+  DRIVER_CONFIRMATION_MINUTES,
+  NO_DRIVER_ASK_HOURS,
+  URGENT_DEPARTURE_HOURS,
+} from '@/config/app';
 import { getDb } from '@/config/supabase';
 
 import { isMinskWorkingTime } from './booking';
@@ -119,7 +123,11 @@ async function expireDriverConfirmations(): Promise<number> {
 }
 
 /**
- * Подошло время выезда, а подтверждённого водителя нет.
+ * Выезд близко, а подтверждённого водителя нет.
+ *
+ * Спрашиваем за `NO_DRIVER_ASK_HOURS` до выезда, а не в момент выезда, как
+ * было: выбор «поеду сам или отменить» в 07:00 на поездку в 07:00 — это не
+ * выбор. Карточка по-прежнему одна: ключ защиты от повтора тот же.
  *
  * Статус поездки не меняется: по требованиям бронь сохраняется, пока автор не
  * выберет — ехать самому или отменить. Значит повторный проход найдёт ту же
@@ -128,14 +136,14 @@ async function expireDriverConfirmations(): Promise<number> {
  */
 async function askAuthorsWithoutDriver(): Promise<number> {
   const db = getDb();
-  const now = new Date().toISOString();
+  const askFrom = new Date(Date.now() + NO_DRIVER_ASK_HOURS * 3_600_000).toISOString();
 
   const { data, error } = await db
     .from('trips')
     .select('id')
     .eq('needs_driver', true)
     .neq('driver_confirmation', 'confirmed')
-    .lte('starts_at', now)
+    .lte('starts_at', askFrom)
     .in('status', ['booked', 'docs_ready'])
     .returns<TripIdRow[]>();
 

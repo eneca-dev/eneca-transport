@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, useTransition } from 'react';
 import { ArrowLeft, ChevronDown } from 'lucide-react';
 
 import { BADGE, BADGE_DOT, BUTTON_PRIMARY, BUTTON_SECONDARY } from '@/components/controls';
+import { useNavCounts } from '@/components/NavCounts';
 import { useTeamsAuth } from '@/components/TeamsAuth';
 import { formatMoment, formatPeriod } from '@/lib/datetime';
 
@@ -27,7 +28,13 @@ import { RescheduleForm } from './RescheduleForm';
 import { ReturnForm } from './ReturnForm';
 import { tripLabelFrom } from './tripLabel';
 import { describeForJournal } from './changeLog';
-import { CONFIRMATION_LABEL, CONFIRMATION_TONE, TONE_CLASS, tripState } from './tripStatus';
+import {
+  CONFIRMATION_LABEL,
+  CONFIRMATION_TONE,
+  nextStep,
+  TONE_CLASS,
+  tripState,
+} from './tripStatus';
 
 import type { TripCard } from './queries';
 
@@ -70,6 +77,7 @@ const EVENT_LABEL: Record<string, string> = {
 
 export function TripCardScreen({ tripId }: TripCardScreenProps) {
   const { employee, getToken } = useTeamsAuth();
+  const { refresh } = useNavCounts();
 
   const [trip, setTrip] = useState<TripCard | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,6 +178,8 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
           setTrip(result.data);
           setError(null);
           closeForms();
+          // Дело сделано — метка должна погаснуть сразу, не дожидаясь перехода.
+          refresh();
         } else {
           setError(result.error);
         }
@@ -199,12 +209,20 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
     return <p className="text-sm text-fg-soft">Загрузка…</p>;
   }
 
-  const state = tripState(trip, {
+  const viewer = {
     isAuthor: trip.isAuthor,
     isAho: employee.roles.includes('aho'),
     isReception: employee.roles.includes('reception'),
     isFinance: employee.roles.includes('finance'),
-  });
+  };
+
+  const state = tripState(trip, viewer);
+
+  /**
+   * Что будет следующим шагом. Показывается, только когда от смотрящего ничего
+   * не ждут: иначе «От вас» и «Дальше» сказали бы одно и то же.
+   */
+  const step = state.waitingFor === null ? nextStep(trip, viewer) : null;
 
   const people = [
     `${trip.authorName} (автор)`,
@@ -245,6 +263,8 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
           От вас: {state.waitingFor}
         </p>
       )}
+
+      {step && <p className="mb-4 text-sm text-fg-soft">Дальше: {step}</p>}
 
       <div className="rounded-lg border border-line bg-surface p-4 sm:p-6">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
