@@ -9,6 +9,7 @@ import {
 import { getDb } from '@/config/supabase';
 import { formatDateLabel, formatMonthLabel } from '@/lib/datetime';
 import { toMinskDate } from '@/modules/trips/booking';
+import { destination } from '@/modules/trips/tripLabel';
 
 import {
   currentMinskMonth,
@@ -201,7 +202,11 @@ export async function driverDayReply(driverId: string, date: string): Promise<Bo
 
   const rows = dayRows(
     date,
-    trips.map((trip) => ({ tripId: trip.id, awaitsAnswer: awaitsAnswer(trip) })),
+    trips.map((trip) => ({
+      tripId: trip.id,
+      destination: destination(trip.route),
+      awaitsAnswer: awaitsAnswer(trip),
+    })),
   );
 
   return {

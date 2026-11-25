@@ -164,13 +164,13 @@ function label(trip: TripCardData): string {
 }
 
 /**
- * Подпись под заголовком: номер, время и полный маршрут.
+ * Подпись под заголовком: время и полный маршрут.
  *
- * Номер нужен для ссылки и для документов финотдела, но читают не его, поэтому
- * он ушёл из заголовка в подпись.
+ * Номера здесь нет. Поездку узнают по названию в заголовке, а номер не читают
+ * и не диктуют: он остаётся адресом страницы и ключом в базе.
  */
 function subline(trip: TripCardData): string {
-  return `№${trip.id} · ${period(trip)} · ${trip.route}`;
+  return `${period(trip)} · ${trip.route}`;
 }
 
 /** К1: автору, бронь создана. */
@@ -221,7 +221,7 @@ export function cardCancelConfirm(
 ): unknown {
   return buildCard({
     title: `Отменить ${tripLabelFrom(route, startsAt, endsAt)}?`,
-    subtitle: `№${tripId} · ${formatPeriod(new Date(startsAt), new Date(endsAt))} · ${route}`,
+    subtitle: `${formatPeriod(new Date(startsAt), new Date(endsAt))} · ${route}`,
     facts: [],
     note:
       'Машина и водитель освободятся, участники, рецепция и финотдел получат уведомление. ' +
@@ -821,13 +821,26 @@ export function cardK16(trip: TripCardData, driverState: string): unknown {
  * сворачивает в «…», поэтому разделы, до которых и так есть меню внутри
  * вкладки, здесь не повторяются.
  */
-export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): unknown {
+export function cardWelcome(
+  knownEmployee: boolean,
+  roles: readonly string[],
+  /** Первый вход: приложение только что поставили, человек здесь впервые. */
+  firstTime = false,
+): unknown {
   const has = (role: string): boolean => roles.includes(role);
 
-  const actions: CardAction[] = [
-    { kind: 'screen', title: 'Новая поездка', screen: 'new' },
-    { kind: 'screen', title: 'Мои поездки' },
-  ];
+  // При первом входе инструкция стоит первой: человека никто не учил, и
+  // начинать ему надо не с заявки. Дальше она уходит в конец — нужна редко.
+  const actions: CardAction[] = firstTime
+    ? [
+        { kind: 'screen', title: 'Как пользоваться', screen: 'help' },
+        { kind: 'screen', title: 'Новая поездка', screen: 'new' },
+        { kind: 'screen', title: 'Мои поездки' },
+      ]
+    : [
+        { kind: 'screen', title: 'Новая поездка', screen: 'new' },
+        { kind: 'screen', title: 'Мои поездки' },
+      ];
 
   if (has('reception') || has('aho')) {
     actions.push({ kind: 'screen', title: 'Рецепция', screen: 'reception' });
@@ -839,14 +852,22 @@ export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): u
     actions.push({ kind: 'screen', title: 'Календарь', screen: 'calendar' });
   }
 
-  // Короткая инструкция последней: нужна один раз, но найтись должна сама.
-  actions.push({ kind: 'screen', title: 'Как пользоваться', screen: 'help' });
+  if (!firstTime) {
+    // Нужна редко, но найтись должна сама.
+    actions.push({ kind: 'screen', title: 'Как пользоваться', screen: 'help' });
+  }
 
-  const note = [
-    'Сюда приходят бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
-    '',
-    'Заявки оформляются во вкладке — кнопки ниже открывают её сразу на нужном экране.',
-  ];
+  const note = firstTime
+    ? [
+        'Сюда будут приходить бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
+        '',
+        'С чего начать: откройте «Как пользоваться» — это один экран. Заявки оформляются во вкладке, кнопки ниже открывают её сразу на нужном месте.',
+      ]
+    : [
+        'Сюда приходят бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
+        '',
+        'Заявки оформляются во вкладке — кнопки ниже открывают её сразу на нужном экране.',
+      ];
 
   // Справочник сотрудников обновляется раз в сутки. Пока человека в нём нет,
   // карточки до него не дойдут, и знать об этом лучше сразу.
@@ -867,7 +888,8 @@ export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): u
 
 /** Строка списка поездок в ответе бота на команду «Мои поездки». */
 export interface TripLine {
-  id: number;
+  /** Название поездки: «Гомель/01.12». Номер в чате не нужен. */
+  label: string;
   period: string;
   route: string;
   state: string;
@@ -908,7 +930,7 @@ export function cardMyTrips(lines: TripLine[], hidden: number): unknown {
   for (const line of lines) {
     body.push({
       type: 'TextBlock',
-      text: `**#${line.id}** · ${line.period}`,
+      text: `**${line.label}** · ${line.period}`,
       wrap: true,
       spacing: 'Medium',
     });

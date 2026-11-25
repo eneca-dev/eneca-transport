@@ -67,9 +67,14 @@ export async function createCar(token: string, input: CarInput): Promise<ActionR
 
     if (error) {
       // Номер уникален на уровне базы: две записи на одну машину развалили бы
-      // историю одометра.
-      const message = error.code === '23505' ? 'Машина с таким номером уже есть.' : error.message;
-      return { success: false, error: message };
+      // историю одометра. Остальные отказы базы пересказывать нельзя: её текст
+      // по-английски и про столбцы, а не про машину.
+      if (error.code === '23505') {
+        return { success: false, error: 'Машина с таким номером уже есть.' };
+      }
+
+      console.error('Машина не добавлена', error);
+      return { success: false, error: 'Не удалось добавить машину. Попробуйте ещё раз.' };
     }
 
     revalidatePath('/cars');
@@ -103,8 +108,12 @@ export async function updateCar(
       .eq('id', carId);
 
     if (error) {
-      const message = error.code === '23505' ? 'Машина с таким номером уже есть.' : error.message;
-      return { success: false, error: message };
+      if (error.code === '23505') {
+        return { success: false, error: 'Машина с таким номером уже есть.' };
+      }
+
+      console.error(`Машина ${carId}: правка не сохранилась`, error);
+      return { success: false, error: 'Не удалось сохранить машину. Попробуйте ещё раз.' };
     }
 
     revalidatePath('/cars');
@@ -132,9 +141,12 @@ export async function startRepair(
 
     if (error) {
       // Частичный уникальный индекс не даёт открыть второй ремонт на ту же машину.
-      const message =
-        error.code === '23505' ? 'Эта машина уже числится в ремонте.' : error.message;
-      return { success: false, error: message };
+      if (error.code === '23505') {
+        return { success: false, error: 'Эта машина уже числится в ремонте.' };
+      }
+
+      console.error(`Машина ${carId}: ремонт не открылся`, error);
+      return { success: false, error: 'Не удалось отправить машину в ремонт. Попробуйте ещё раз.' };
     }
 
     // Брони на эти даты не снимаем: по требованиям решение за человеком.
@@ -148,19 +160,51 @@ export async function startRepair(
   }
 }
 
-/** Ремонт закончен: у открытого периода проставляется дата окончания. */
+/**
+ * Ремонт закончен: у открытого периода проставляется дата окончания.
+ *
+ * Дату сначала читаем, а потом пишем, из-за ограничения базы
+ * `car_repairs_check`: `until` не может быть раньше `since`. Приложение
+ * открывает ремонт только с сегодняшнего дня, но в базе встречается начало
+ * в будущем — так заводят ремонт скриптом или правкой в таблице. Закрыть его
+ * «сегодняшним» числом нельзя, и база отвечала отказом на английском.
+ * Поэтому у такого ремонта день окончания равен дню начала: период в один
+ * день, а не отказ, разбираться в котором пришлось бы АХО.
+ */
 export async function finishRepair(token: string, carId: string): Promise<ActionResult<Car[]>> {
   try {
     await requireRole(token, 'aho');
 
-    const { error } = await getDb()
+    const db = getDb();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { data: open, error: openError } = await db
       .from('car_repairs')
-      .update({ until: new Date().toISOString().slice(0, 10) })
+      .select('id, since')
       .eq('car_id', carId)
-      .is('until', null);
+      .is('until', null)
+      .maybeSingle<{ id: string; since: string }>();
+
+    if (openError) {
+      console.error(`Машина ${carId}: запись о ремонте не прочиталась`, openError);
+      return { success: false, error: 'Не удалось прочитать запись о ремонте. Попробуйте ещё раз.' };
+    }
+
+    // Открытого ремонта нет: кнопку нажали дважды или ремонт закрыл кто-то
+    // другой. Отказывать не за что — машина и так свободна.
+    if (!open) {
+      revalidatePath('/cars');
+      return { success: true, data: await listCars() };
+    }
+
+    const { error } = await db
+      .from('car_repairs')
+      .update({ until: open.since > today ? open.since : today })
+      .eq('id', open.id);
 
     if (error) {
-      return { success: false, error: error.message };
+      console.error(`Машина ${carId}: ремонт не закрылся`, error);
+      return { success: false, error: 'Не удалось закрыть ремонт. Попробуйте ещё раз.' };
     }
 
     revalidatePath('/cars');

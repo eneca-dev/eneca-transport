@@ -79,8 +79,6 @@ export function DocumentsScreen() {
                   <span className="font-medium">
                     {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
                   </span>
-                  {/* Номер финотделу нужен: он попадает в документы. */}
-                  <span className="font-mono text-sm text-fg-soft">№{trip.id}</span>
                   <span className="text-sm">{trip.route}</span>
                   {/* Повторная проверка выделяется: прежний комплект уже не годится. */}
                   {trip.recheck && (

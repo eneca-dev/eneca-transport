@@ -8,6 +8,7 @@ import { decideRemark } from '@/modules/cars/remarks';
 import { notifyFinanceNewRequest } from '@/modules/documents/notify';
 import { assignDriver, cancelTrip, changeCar, confirmForDriver } from './changeService';
 import { notifyTripChanged } from './notifyChange';
+import { tripLabelFrom } from './tripLabel';
 import { submitReturn } from './returnService';
 import { setDocsReady } from '@/modules/documents/service';
 import { findEmployeeByOid } from '@/modules/employees/queries';
@@ -220,7 +221,7 @@ export async function handleCardAction(
         return { message: 'Ключи уже выданы — отменять поздно, машину надо принять.', done: true };
       }
       return {
-        message: `Отменить поездку №${trip.id}?`,
+        message: `Отменить ${tripLabelFrom(trip.route, trip.starts_at, trip.ends_at)}?`,
         done: false,
         reply: cardCancelConfirm(trip.id, trip.starts_at, trip.ends_at, trip.route),
       };

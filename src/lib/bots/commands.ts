@@ -23,7 +23,16 @@ export type TeamsCommand = 'my_trips' | 'new_trip' | 'help';
 const WORDS: Record<TeamsCommand, string[]> = {
   my_trips: ['мои поездки', 'поездки', 'мои заявки', 'my trips'],
   new_trip: ['новая поездка', 'новая заявка', 'заявка', 'new trip'],
-  help: ['помощь', 'справка', 'что ты умеешь', 'help', 'start', 'меню'],
+  help: [
+    'помощь',
+    'справка',
+    'инструкция',
+    'как пользоваться',
+    'что ты умеешь',
+    'help',
+    'start',
+    'меню',
+  ],
 };
 
 /**

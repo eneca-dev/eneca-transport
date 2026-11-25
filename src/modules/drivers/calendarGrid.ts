@@ -223,6 +223,8 @@ export function monthGrid(
 /** Поездка дня в том виде, в каком она важна для кнопок. */
 export interface DayTrip {
   tripId: number;
+  /** Куда едут: этим поездки и различаются в кнопках, когда их несколько. */
+  destination: string;
   /** Ждут ли от водителя ответа: подтверждения или отказа. */
   awaitsAnswer: boolean;
 }
@@ -234,15 +236,15 @@ export interface DayTrip {
  * предлагается здесь же, рядом с возвратом в календарь, а не в прежнем
  * сообщении с назначением, которое надо ещё найти в переписке.
  *
- * Номер поездки появляется в кнопке только тогда, когда ответа в этот день
- * ждут две поездки и больше. При одной он лишний шум: о какой поездке речь,
+ * Направление появляется в кнопке только тогда, когда ответа в этот день
+ * ждут две поездки и больше. При одной это лишний шум: о какой поездке речь,
  * видно из текста над кнопками.
  */
 export function dayRows(date: string, trips: DayTrip[]): InlineButton[][] {
   const waiting = trips.filter((trip) => trip.awaitsAnswer);
 
   const rows: InlineButton[][] = waiting.map((trip) => {
-    const suffix = waiting.length > 1 ? ` #${trip.tripId}` : '';
+    const suffix = waiting.length > 1 ? ` · ${trip.destination}` : '';
 
     return [
       { text: `Подтверждаю${suffix}`, data: `cal:c:${trip.tripId}:${date}` },

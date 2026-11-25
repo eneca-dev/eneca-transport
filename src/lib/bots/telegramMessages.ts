@@ -34,7 +34,7 @@ export interface AssignmentMessage {
  */
 export function messageT1(trip: AssignmentMessage): string {
   const lines = [
-    `${tripLabel(trip.route, new Date(trip.startsAt), new Date(trip.endsAt))} · поездка №${trip.tripId}`,
+    tripLabel(trip.route, new Date(trip.startsAt), new Date(trip.endsAt)),
     formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt)),
     trip.route,
     '',
@@ -100,7 +100,7 @@ export function messageT5Odometer(
   odometerStartKm: number,
   responsible: string | null = null,
 ): string {
-  const lines = [`${ref.label} · поездка №${ref.tripId}. Время возврата.`, ref.route];
+  const lines = [`${ref.label}. Время возврата.`, ref.route];
 
   if (responsible) {
     lines.push(`Ответственный: ${responsible}.`);
@@ -150,10 +150,7 @@ export function messageT5TooLow(odometerStartKm: number): string {
 
 /** Т6: поездка закрыта. */
 export function messageT6(ref: TripRef, distanceKm: number): string {
-  return [
-    `${ref.label} закрыта. Пробег ${distanceKm.toLocaleString('ru-RU')} км.`,
-    `Поездка №${ref.tripId}.`,
-  ].join('\n');
+  return `${ref.label} закрыта. Пробег ${distanceKm.toLocaleString('ru-RU')} км.`;
 }
 
 export interface DriverTripLine {
@@ -185,7 +182,7 @@ export function messageMyTrips(trips: DriverTripLine[]): string {
     [
       `${tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)} · ${trip.status}`,
       `${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} · ${trip.route}`,
-      `${trip.carLabel ?? 'машина не указана'} · №${trip.tripId}`,
+      trip.carLabel ?? 'машина не указана',
     ].join('\n'),
   );
 
@@ -244,7 +241,7 @@ export function messageDriverDay(
     const lines = [
       `${tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)} · ${trip.status}`,
       `${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} · ${trip.route}`,
-      `${trip.carLabel ?? 'машина не указана'} · №${trip.tripId}`,
+      trip.carLabel ?? 'машина не указана',
     ];
 
     if (trip.responsible) {
@@ -274,7 +271,7 @@ export function messageT3(
   responsible: string | null = null,
 ): string {
   const lines = [
-    `Завтра ${ref.label} · поездка №${ref.tripId}.`,
+    `Завтра ${ref.label}.`,
     ref.route,
     '',
     `Выезд ${departure}.`,
@@ -298,7 +295,7 @@ export function messageT4(
   what: string,
   needsNewConfirmation: boolean,
 ): string {
-  const lines = [`${ref.label} · поездка №${ref.tripId}: ${what}.`, ref.route];
+  const lines = [`${ref.label}: ${what}.`, ref.route];
 
   if (needsNewConfirmation) {
     lines.push('', 'Сейчас пришлю новый запрос подтверждения.');

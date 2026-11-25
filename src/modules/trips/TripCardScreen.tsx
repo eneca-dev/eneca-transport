@@ -253,9 +253,7 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
         <p className="mt-1 text-base font-medium">
           {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
         </p>
-        <p className="mt-0.5 text-sm text-fg-soft">
-          {trip.route} · поездка <span className="font-mono">№{trip.id}</span>
-        </p>
+        <p className="mt-0.5 text-sm text-fg-soft">{trip.route}</p>
       </div>
 
       {state.waitingFor && (

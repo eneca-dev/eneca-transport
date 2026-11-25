@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       );
 
       // Карточка с кнопками: и при установке, и в ответ на любое сообщение.
-      const sendWelcome = async () => {
+      const sendWelcome = async (firstTime = false) => {
         const oid = from?.aadObjectId ?? null;
         const employee = oid ? await findEmployeeByOid(oid) : null;
 
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
           attachments: [
             {
               contentType: 'application/vnd.microsoft.card.adaptive',
-              content: cardWelcome(known, employee?.roles ?? []),
+              content: cardWelcome(known, employee?.roles ?? [], firstTime),
             },
           ],
         });
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
         await remember();
         // Установка — единственный момент, когда человек точно смотрит в этот
         // чат. Молчать в него значит оставить его искать вкладку самому.
-        await sendWelcome();
+        await sendWelcome(true);
         return;
       }
 

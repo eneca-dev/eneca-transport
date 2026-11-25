@@ -188,7 +188,6 @@ export function HistoryScreen() {
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-sm text-fg-soft">№{trip.id}</span>
                     <span className="font-medium">{trip.route}</span>
                     {trip.status === 'cancelled' && (
                       <span className={`${BADGE} ${TONE_CLASS.bad}`}>

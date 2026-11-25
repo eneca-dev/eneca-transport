@@ -16,8 +16,8 @@ import type { ConflictingTrip, TooSoon } from './conflictText';
  *
  * База в таком случае отвечает кодом `23P01` — «нарушено ограничение
  * исключения». Пересказать это человеку нельзя, поэтому мешающие заявки
- * ищутся и называются по номерам, а решение принимает он: перенести чужую
- * бронь или отменить её.
+ * ищутся и называются направлением и временем, а решение принимает он:
+ * перенести чужую бронь или отменить её.
  *
  * Спрашивают об этом в двух местах: Э5 — до нажатия, чтобы кнопка «Принять»
  * не выглядела рабочей, и `returnService` — когда база всё же отказала.
@@ -40,6 +40,7 @@ interface Row {
   id: number;
   starts_at: string;
   ends_at: string;
+  route: string;
   car_id: string | null;
   driver_id: string | null;
 }
@@ -72,7 +73,7 @@ export async function lateReturnConflicts(
 
   const { data, error } = await getDb()
     .from('trips')
-    .select('id, starts_at, ends_at, car_id, driver_id')
+    .select('id, starts_at, ends_at, route, car_id, driver_id')
     .neq('id', trip.id)
     .not('status', 'in', '(draft,cancelled)')
     .or(owners.join(','))
@@ -90,6 +91,7 @@ export async function lateReturnConflicts(
     id: row.id,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
+    route: row.route,
     kind: row.car_id !== null && row.car_id === trip.carId ? 'car' : 'driver',
   }));
 }
@@ -107,13 +109,13 @@ export async function lateReturnConflicts(
 export async function issueTooSoon(carId: string, now: Date): Promise<TooSoon | null> {
   const { data, error } = await getDb()
     .from('trips')
-    .select('id, keys_returned_at')
+    .select('keys_returned_at')
     .eq('car_id', carId)
     .eq('status', 'closed')
     .not('keys_returned_at', 'is', null)
     .order('keys_returned_at', { ascending: false })
     .limit(1)
-    .returns<{ id: number; keys_returned_at: string }[]>();
+    .returns<{ keys_returned_at: string }[]>();
 
   if (error) {
     // Отказывать из-за сбоя проверки нельзя: машина стоит, человек ждёт.
@@ -136,7 +138,6 @@ export async function issueTooSoon(carId: string, now: Date): Promise<TooSoon | 
   }
 
   return {
-    tripId: last.id,
     returnedAt: last.keys_returned_at,
     freeFrom: freeFrom.toISOString(),
   };

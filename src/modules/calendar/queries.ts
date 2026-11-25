@@ -188,7 +188,7 @@ export async function loadCalendar(since: string, until: string): Promise<Calend
       kind: 'trip',
       tripId: trip.id,
       ...bounds,
-      title: `#${trip.id} · ${trip.route}`,
+      title: trip.route,
       when: formatPeriod(new Date(trip.starts_at), new Date(trip.ends_at)),
       detail: `${car} · ${driver}`,
     };

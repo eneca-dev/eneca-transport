@@ -1,5 +1,7 @@
 import { formatPeriod, formatTime } from '@/lib/datetime';
 
+import { destination } from './tripLabel';
+
 /**
  * Формулировки о том, почему машину нельзя принять или выдать прямо сейчас.
  *
@@ -12,14 +14,16 @@ export interface ConflictingTrip {
   id: number;
   startsAt: string;
   endsAt: string;
+  /** Маршрут мешающей брони: по нему её и называют — «Гомель», а не «№100». */
+  route: string;
   /** Чем именно занято: та же машина или тот же водитель. */
   kind: 'car' | 'driver';
 }
 
-/** Сколько заявок называем по номерам, прежде чем перейти к «и ещё N». */
+/** Сколько заявок называем, прежде чем перейти к «и ещё N». */
 const LISTED = 3;
 
-/** «#100 (23.11 10:00 – 23.11 20:00, машина)» — перечень через запятую. */
+/** «Гомель (23.11 10:00 – 23.11 20:00, машина)» — перечень через запятую. */
 export function conflictList(conflicts: ConflictingTrip[]): string {
   const listed = conflicts
     .slice(0, LISTED)
@@ -27,18 +31,16 @@ export function conflictList(conflicts: ConflictingTrip[]): string {
       const what = item.kind === 'car' ? 'машина' : 'водитель';
       const when = formatPeriod(new Date(item.startsAt), new Date(item.endsAt));
 
-      return `№${item.id} (${when}, ${what})`;
+      return `${destination(item.route)} (${when}, ${what})`;
     })
     .join(', ');
 
   return conflicts.length > LISTED ? `${listed} и ещё ${conflicts.length - LISTED}` : listed;
 }
 
-/** Полная причина отказа — её видно после нажатия «Принять». */
 /** Машину только что приняли, и десять минут ещё не прошли. */
 export interface TooSoon {
-  /** Поездка, по которой машину сдали. */
-  tripId: number;
+  /** Когда машину сдали. По какой поездке — рецепции не важно: машина одна. */
   returnedAt: string;
   /** Когда её можно выдавать. */
   freeFrom: string;
@@ -56,12 +58,13 @@ export interface TooSoon {
  */
 export function issueTooSoonReason(info: TooSoon): string {
   return (
-    `Машину приняли по поездке №${info.tripId} в ${formatTime(new Date(info.returnedAt))}. ` +
+    `Машину приняли в ${formatTime(new Date(info.returnedAt))}. ` +
     `Выдать её можно с ${formatTime(new Date(info.freeFrom))} — ` +
     'десять минут на приём и осмотр.'
   );
 }
 
+/** Полная причина отказа — её видно после нажатия «Принять». */
 export function lateReturnReason(conflicts: ConflictingTrip[]): string {
   const head =
     'Машина вернулась позже планового времени, и по требованиям она считается ' +

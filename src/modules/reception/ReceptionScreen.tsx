@@ -144,7 +144,7 @@ function Row({ trip, time, detail, action }: RowProps) {
           </span>{' '}
           <span className="text-sm">{trip.carLabel ?? '—'}</span>{' '}
           <span className="text-sm text-fg-soft">
-            {people(trip)} · <span className="font-mono">№{trip.id}</span>
+            {people(trip)}
           </span>
         </p>
         {detail}

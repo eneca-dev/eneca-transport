@@ -53,6 +53,10 @@ const NAV: NavItem[] = [
   { href: '/drivers', label: 'Водители', icon: UserRound, roles: ['aho'] },
   { href: '/history', label: 'История', icon: History, roles: ['aho'] },
   { href: '/roles', label: 'Роли', icon: ShieldCheck, roles: ['aho'] },
+  // Видна всем и стоит последней: нужна редко, но человек, которого никто не
+  // учил, должен найти её сам. Из-за неё полоска разделов есть и у сотрудника
+  // без ролей — у него в ней два пункта.
+  { href: '/help', label: 'Как пользоваться', icon: CircleQuestionMark },
 ];
 
 /** «Александра Бирило» → «АБ». Нужны первые буквы двух первых слов. */
@@ -78,9 +82,9 @@ export function AppShell({ children }: AppShellProps) {
     (item) => !item.roles || item.roles.some((role) => employee.roles.includes(role)),
   );
 
-  // Сотруднику без ролей переключать нечего: у него один раздел, и его название
-  // Teams уже показывает закладкой рядом с «Чат». Вторая такая же полоска внутри
-  // вкладки только дублировала бы её, поэтому её нет совсем.
+  // Полоска рисуется, когда есть куда переключаться. Раньше у сотрудника без
+  // ролей раздел был один, и полоска только дублировала бы закладку Teams.
+  // Теперь у него есть ещё «Как пользоваться», и полоска нужна.
   const switchable = items.length > 1;
 
   return (
@@ -137,20 +141,6 @@ export function AppShell({ children }: AppShellProps) {
             </nav>
 
             <div className="flex min-w-0 items-center gap-2">
-              {/* Короткая инструкция рядом с именем: в полоске разделов она
-                  заняла бы место у того, чем пользуются каждый день. */}
-              <Link
-                href="/help"
-                aria-label="Как пользоваться"
-                title="Как пользоваться"
-                className={`shrink-0 rounded-md p-1.5 transition-colors ${
-                  pathname.startsWith('/help')
-                    ? 'text-brand-text'
-                    : 'text-fg-soft hover:text-fg'
-                }`}
-              >
-                <CircleQuestionMark className="size-4" aria-hidden />
-              </Link>
               <span
                 className="hidden truncate text-sm text-fg-soft sm:block"
                 title={employee.upn}

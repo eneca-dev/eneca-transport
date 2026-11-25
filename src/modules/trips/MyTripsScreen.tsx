@@ -65,9 +65,9 @@ function TripRow({ trip, state, problem }: TripRowProps) {
       }
     >
       <div className="min-w-0 flex-1">
-        {/* Первой строкой название: «Гомель/01.12» — куда и когда. Полный
-            маршрут и номер ушли во вторую строку: номер нужен для ссылки и
-            документов, а не для чтения. */}
+        {/* Первой строкой название: «Гомель/01.12» — куда и когда, второй —
+            маршрут, машина и водитель. Номера в списке нет: он нужен для
+            документов, а не для чтения, и виден в карточке поездки. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="min-w-0 font-medium">
             {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
@@ -80,7 +80,6 @@ function TripRow({ trip, state, problem }: TripRowProps) {
 
         <p className="mt-0.5 text-sm text-fg-soft">
           {trip.route} · {details(trip)}
-          <span className="font-mono"> · №{trip.id}</span>
         </p>
 
         {/* Причина проблемы вместо «От вас»: она конкретнее и говорит, чем
@@ -214,14 +213,6 @@ export function MyTripsScreen() {
         </section>
       )}
 
-      {trips && (
-        <p className="mt-6 text-xs text-fg-soft">
-          Не разобраться?{' '}
-          <Link href="/help" className="underline underline-offset-2">
-            Как пользоваться
-          </Link>
-        </p>
-      )}
     </section>
   );
 }

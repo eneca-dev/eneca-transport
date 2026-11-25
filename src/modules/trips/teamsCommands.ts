@@ -6,6 +6,7 @@ import { formatPeriod } from '@/lib/datetime';
 import { findEmployeeByOid } from '@/modules/employees/queries';
 
 import { listMyTrips } from './queries';
+import { tripLabelFrom } from './tripLabel';
 import { tripState } from './tripStatus';
 
 /**
@@ -62,7 +63,7 @@ export async function teamsCommandReply(
       const state = tripState(trip, { ...roles, isAuthor: trip.isAuthor });
 
       return {
-        id: trip.id,
+        label: tripLabelFrom(trip.route, trip.startsAt, trip.endsAt),
         period: formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt)),
         route: trip.route,
         state: state.label,

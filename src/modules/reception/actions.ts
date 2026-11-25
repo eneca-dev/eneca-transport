@@ -8,6 +8,7 @@ import { AccessError, requireRole } from '@/lib/auth/currentEmployee';
 
 import { issueTooSoon, issueTooSoonReason } from '@/modules/trips/bookingConflicts';
 import { acceptKeys } from '@/modules/trips/returnService';
+import { tripLabelFrom } from '@/modules/trips/tripLabel';
 
 import { notifyKeysIssued } from './notify';
 import { listReceptionDay } from './queries';
@@ -115,18 +116,22 @@ export async function issueKeys(
     // закрыта предыдущая поездка.
     const { data: busy, error: busyError } = await db
       .from('trips')
-      .select('id')
+      .select('route, starts_at, ends_at')
       .eq('car_id', trip.car_id)
       .eq('status', 'in_trip')
-      .returns<{ id: number }[]>();
+      .returns<{ route: string; starts_at: string; ends_at: string }[]>();
 
     if (busyError) {
       return { success: false, error: 'Не удалось проверить машину. Попробуйте ещё раз.' };
     }
-    if ((busy ?? []).length > 0) {
+    const inTrip = (busy ?? [])[0];
+
+    if (inTrip) {
+      const label = tripLabelFrom(inTrip.route, inTrip.starts_at, inTrip.ends_at);
+
       return {
         success: false,
-        error: `Машина ещё в поездке №${busy![0].id}. Сначала примите её.`,
+        error: `Машина ещё в поездке ${label}. Сначала примите её.`,
       };
     }
 
