@@ -63,13 +63,6 @@ export function ReviewStep({
         ))}
       </dl>
 
-      {details.needsDriver && driver && !driver.telegramLinked && (
-        <p className="mt-4 rounded-md border border-line bg-warn px-4 py-3 text-sm text-warn-fg">
-          У водителя не подключён Telegram, и запрос подтверждения до него не дойдёт. Бронь
-          всё равно создастся — попросите АХО подключить водителя в разделе «Водители».
-        </p>
-      )}
-
       <p className="mt-4 text-xs text-fg-soft">
         При отправке машина и водитель проверяются заново: за время заполнения их могли занять.
       </p>

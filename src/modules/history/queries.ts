@@ -16,6 +16,11 @@ export interface HistoryFilters {
   until: string;
   carId?: string;
   employeeId?: string;
+  /**
+   * Отдел автора заявки, как он записан в Entra ID. Строкой, а не кодом:
+   * справочника отделов у нас нет, в `employees.department` лежит название.
+   */
+  department?: string;
 }
 
 export interface HistoryRow {
@@ -50,18 +55,22 @@ interface Row {
   condition_ok: boolean | null;
   cars: { plate: string; model: string } | null;
   drivers: { full_name: string } | null;
-  employees: { display_name: string } | null;
+  employees: { display_name: string; department: string | null } | null;
 }
 
 const SELECT =
   'id, status, starts_at, ends_at, route, author_id, distance_km, return_note, condition_ok, ' +
-  'cars(plate, model), drivers(full_name), employees!trips_author_id_fkey(display_name)';
+  'cars(plate, model), drivers(full_name), ' +
+  'employees!trips_author_id_fkey(display_name, department)';
 
 /**
  * Поездки за период.
  *
  * Фильтр по сотруднику смотрит и на автора, и на участников: «поездки Петрова»
  * — это те, где он ехал, а не только те, которые он оформлял.
+ *
+ * Фильтр по отделу — наоборот, только по автору: в поездку берут коллег из
+ * других отделов, и «поездки проектного отдела» — это те, которые он заказал.
  */
 export async function listHistory(filters: HistoryFilters): Promise<HistoryResult> {
   const db = getDb();
@@ -79,6 +88,15 @@ export async function listHistory(filters: HistoryFilters): Promise<HistoryResul
 
   if (filters.carId) {
     request = request.eq('car_id', filters.carId);
+  }
+
+  // Отдел живёт у автора, поэтому условие ставится на связанную таблицу.
+  // `!inner` обязателен: без него PostgREST вернёт поездку с пустым автором
+  // вместо того, чтобы её отбросить.
+  if (filters.department) {
+    request = request
+      .select(SELECT.replace('employees!trips_author_id_fkey', 'employees!inner'))
+      .eq('employees.department', filters.department);
   }
 
   const { data, error } = await request.returns<Row[]>();
@@ -129,10 +147,11 @@ export interface FilterOption {
   label: string;
 }
 
-/** Машины и сотрудники для выпадающих списков фильтров. */
+/** Машины, сотрудники и отделы для выпадающих списков фильтров. */
 export async function listHistoryFilters(): Promise<{
   cars: FilterOption[];
   employees: FilterOption[];
+  departments: string[];
 }> {
   const db = getDb();
 
@@ -150,18 +169,25 @@ export async function listHistoryFilters(): Promise<{
   // девятисот человек в выпадающем списке бесполезен.
   const authors = await db
     .from('trips')
-    .select('author_id, employees!trips_author_id_fkey(display_name)')
+    .select('author_id, employees!trips_author_id_fkey(display_name, department)')
     .in('status', ['closed', 'cancelled'])
-    .returns<{ author_id: string; employees: { display_name: string } | null }[]>();
+    .returns<
+      { author_id: string; employees: { display_name: string; department: string | null } | null }[]
+    >();
 
   if (authors.error) {
     throw new Error(`Не удалось прочитать авторов: ${authors.error.message}`);
   }
 
   const unique = new Map<string, string>();
+  const departments = new Set<string>();
+
   for (const row of authors.data ?? []) {
     if (row.employees) {
       unique.set(row.author_id, row.employees.display_name);
+      if (row.employees.department) {
+        departments.add(row.employees.department);
+      }
     }
   }
 
@@ -173,5 +199,6 @@ export async function listHistoryFilters(): Promise<{
     employees: [...unique.entries()]
       .map(([id, label]) => ({ id, label }))
       .sort((a, b) => a.label.localeCompare(b.label, 'ru')),
+    departments: [...departments].sort((a, b) => a.localeCompare(b, 'ru')),
   };
 }

@@ -77,7 +77,7 @@ export function DocumentsScreen() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">
-                    {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
+                    {tripLabelFrom(trip.id, trip.startsAt, trip.endsAt)}
                   </span>
                   <span className="text-sm">{trip.route}</span>
                   {/* Повторная проверка выделяется: прежний комплект уже не годится. */}

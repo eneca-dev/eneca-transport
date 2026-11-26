@@ -70,7 +70,7 @@ function TripRow({ trip, state, problem }: TripRowProps) {
             документов, а не для чтения, и виден в карточке поездки. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="min-w-0 font-medium">
-            {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
+            {tripLabelFrom(trip.id, trip.startsAt, trip.endsAt)}
           </span>
           <span className={`${BADGE} ${TONE_CLASS[state.tone]}`}>
             <span className={BADGE_DOT} aria-hidden />

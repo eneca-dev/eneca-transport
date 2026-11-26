@@ -29,11 +29,18 @@ import type { CalendarData, CalendarRow, CalendarSpan, SpanKind } from './querie
  * ближайшие дни.
  */
 
-type Span = 'week' | 'month';
+type Span = 'day' | 'week' | 'month';
 
 const weekdayFormat = new Intl.DateTimeFormat('ru-RU', {
   timeZone: APP_TIMEZONE,
   weekday: 'short',
+});
+
+const dayTitle = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: APP_TIMEZONE,
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
 });
 
 const monthTitle = new Intl.DateTimeFormat('ru-RU', {
@@ -63,6 +70,11 @@ function startOfWeek(date: Date): Date {
 }
 
 function rangeFor(span: Span, anchor: Date): { since: string; until: string } {
+  if (span === 'day') {
+    const day = toMinskDate(anchor);
+    return { since: day, until: day };
+  }
+
   if (span === 'week') {
     const from = startOfWeek(anchor);
     return {
@@ -231,10 +243,12 @@ export function CalendarScreen() {
     };
   }, [hint]);
 
-  /** Шаг листания: неделя или месяц. */
+  /** Шаг листания: сутки, неделя или месяц. */
   function step(direction: -1 | 1) {
     const next = new Date(anchor);
-    if (span === 'week') {
+    if (span === 'day') {
+      next.setDate(next.getDate() + direction);
+    } else if (span === 'week') {
       next.setDate(next.getDate() + direction * 7);
     } else {
       next.setMonth(next.getMonth() + direction);
@@ -250,7 +264,10 @@ export function CalendarScreen() {
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">
-          Календарь · {monthTitle.format(new Date(`${range.since}T12:00:00+03:00`))}
+          Календарь ·{' '}
+          {span === 'day'
+            ? dayTitle.format(new Date(`${range.since}T12:00:00+03:00`))
+            : monthTitle.format(new Date(`${range.since}T12:00:00+03:00`))}
         </h1>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -282,7 +299,7 @@ export function CalendarScreen() {
           </button>
 
           <span className="ml-2 flex overflow-hidden rounded-md border border-line-strong">
-            {(['week', 'month'] as const).map((option) => (
+            {(['day', 'week', 'month'] as const).map((option) => (
               <button
                 key={option}
                 type="button"
@@ -294,7 +311,7 @@ export function CalendarScreen() {
                     : 'bg-surface text-fg-soft hover:bg-surface-soft'
                 }`}
               >
-                {option === 'week' ? 'Неделя' : 'Месяц'}
+                {option === 'day' ? 'День' : option === 'week' ? 'Неделя' : 'Месяц'}
               </button>
             ))}
           </span>
@@ -309,7 +326,9 @@ export function CalendarScreen() {
 
       {data === null && !error && <p className="text-sm text-fg-soft">Загрузка…</p>}
 
-      {data && (
+      {data && span === 'day' && <DayList data={data} />}
+
+      {data && span !== 'day' && (
         <>
           {/* Прокручивается вбок: месяц в 31 колонку на узкий экран не влезет,
               а сжимать колонки до нечитаемых — хуже прокрутки. */}
@@ -390,6 +409,67 @@ export function CalendarScreen() {
 
       {hint && <HintBox hint={hint} />}
     </section>
+  );
+}
+
+/**
+ * День — списком, а не сеткой.
+ *
+ * Сетка в одну колонку выродилась бы в столбик цветных квадратов без единой
+ * подписи: подробности в ней живут в подсказке при наведении, а наводить
+ * некуда. В списке всё написано сразу — время, маршрут, водитель.
+ *
+ * Пустые строки пропускаются: смысл дня в том, что занято, а свободные машины
+ * считаются взглядом по тому, чего в списке нет.
+ */
+function DayList({ data }: { data: CalendarData }) {
+  const router = useRouter();
+  const rows = [...data.cars, ...data.drivers].filter((row) => row.spans.length > 0);
+
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-fg-soft">
+        В этот день ничего не запланировано.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
+      {rows.map((row) => (
+        <li key={`${row.id}-${row.title}`} className="px-4 py-3">
+          <p className="text-sm font-medium">
+            {row.title}
+            {row.subtitle && <span className="ml-2 text-fg-soft">{row.subtitle}</span>}
+          </p>
+
+          <ul className="mt-1 space-y-1">
+            {row.spans.map((span) => (
+              <li key={span.key}>
+                <button
+                  type="button"
+                  disabled={span.tripId === null}
+                  onClick={() => span.tripId !== null && router.push(`/trips/${span.tripId}`)}
+                  className="flex w-full items-start gap-2 rounded-md px-1 py-1 text-left text-sm enabled:hover:bg-surface-soft"
+                >
+                  <span
+                    className={`mt-1.5 inline-block size-2 shrink-0 rounded-full ${MARK_CLASS[span.kind]}`}
+                    aria-hidden
+                  />
+                  <span className="min-w-0">
+                    <span className="block">{span.title}</span>
+                    <span className="block text-fg-soft">
+                      {span.when}
+                      {span.detail && ` · ${span.detail}`}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
   );
 }
 

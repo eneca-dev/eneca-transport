@@ -370,24 +370,9 @@ function myWork(
       continue;
     }
 
-    if (
-      trip.needsDriver &&
-      trip.driverConfirmation !== 'confirmed' &&
-      trip.driverConfirmation !== 'not_required' &&
-      isNear(trip.startsAt, now)
-    ) {
-      rows.push({
-        rank: 4,
-        row: {
-          tripId: trip.id,
-          label: trip.label,
-          what: 'водитель не подтвердил поездку',
-          when: departureAt(trip),
-          href,
-        },
-      });
-      continue;
-    }
+    // Молчание водителя автору не показывается намеренно: сделать он с этим
+    // ничего не может — замену назначает АХО, и К14 уходит ей. Отказ водителя
+    // выше остаётся: там решение принимает как раз автор.
 
     if (!trip.docsReady && isNear(trip.startsAt, now)) {
       rows.push({

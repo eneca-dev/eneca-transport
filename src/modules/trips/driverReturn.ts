@@ -334,7 +334,7 @@ export async function listDriverTrips(driverId: string): Promise<BotReply> {
     text: messageMyTrips(lines),
     buttons: [
       {
-        text: `Оформить возврат · ${tripLabelFrom(inTrip.route, inTrip.starts_at, inTrip.ends_at)}`,
+        text: `Оформить возврат · ${tripLabelFrom(inTrip.id, inTrip.starts_at, inTrip.ends_at)}`,
         data: 'return:start',
       },
     ],

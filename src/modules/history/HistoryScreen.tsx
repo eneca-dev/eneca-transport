@@ -36,17 +36,29 @@ export function HistoryScreen() {
   const [until, setUntil] = useState(period.until);
   const [carId, setCarId] = useState('');
   const [employeeId, setEmployeeId] = useState('');
+  const [department, setDepartment] = useState('');
 
-  const [options, setOptions] = useState<{ cars: FilterOption[]; employees: FilterOption[] }>({
+  const [options, setOptions] = useState<{
+    cars: FilterOption[];
+    employees: FilterOption[];
+    departments: string[];
+  }>({
     cars: [],
     employees: [],
+    departments: [],
   });
   const [result, setResult] = useState<HistoryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const load = useCallback(
-    (filters: { since: string; until: string; carId: string; employeeId: string }) => {
+    (filters: {
+      since: string;
+      until: string;
+      carId: string;
+      employeeId: string;
+      department: string;
+    }) => {
       startTransition(async () => {
         try {
           const token = await getToken();
@@ -55,6 +67,7 @@ export function HistoryScreen() {
             until: filters.until,
             carId: filters.carId || null,
             employeeId: filters.employeeId || null,
+            department: filters.department || null,
           });
 
           if (loaded.success) {
@@ -85,7 +98,13 @@ export function HistoryScreen() {
   }, [getToken]);
 
   useEffect(() => {
-    load({ since: period.since, until: period.until, carId: '', employeeId: '' });
+    load({
+      since: period.since,
+      until: period.until,
+      carId: '',
+      employeeId: '',
+      department: '',
+    });
     // Первая загрузка — за текущий месяц, дальше только по кнопке.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -96,7 +115,7 @@ export function HistoryScreen() {
     <section>
       <h1 className="mb-4 text-lg font-semibold">История поездок</h1>
 
-      <div className="mb-4 grid gap-3 rounded-lg border border-line bg-surface p-4 sm:grid-cols-4">
+      <div className="mb-4 grid gap-3 rounded-lg border border-line bg-surface p-4 sm:grid-cols-3">
         <label className="block">
           <span className={label}>С</span>
           <input
@@ -145,11 +164,28 @@ export function HistoryScreen() {
             ))}
           </select>
         </label>
+        {/* Отдел берётся из Entra ID и относится к автору заявки: поездку
+            заказывает отдел, а едут в ней и коллеги из других. */}
+        <label className="block">
+          <span className={label}>Отдел</span>
+          <select
+            className={FIELD}
+            value={department}
+            onChange={(event) => setDepartment(event.target.value)}
+          >
+            <option value="">все</option>
+            {options.departments.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
 
-        <div className="sm:col-span-4">
+        <div className="sm:col-span-3">
           <button
             type="button"
-            onClick={() => load({ since, until, carId, employeeId })}
+            onClick={() => load({ since, until, carId, employeeId, department })}
             disabled={pending}
             className={BUTTON_SECONDARY}
           >

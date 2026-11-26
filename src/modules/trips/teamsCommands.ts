@@ -63,7 +63,7 @@ export async function teamsCommandReply(
       const state = tripState(trip, { ...roles, isAuthor: trip.isAuthor });
 
       return {
-        label: tripLabelFrom(trip.route, trip.startsAt, trip.endsAt),
+        label: tripLabelFrom(trip.id, trip.startsAt, trip.endsAt),
         period: formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt)),
         route: trip.route,
         state: state.label,

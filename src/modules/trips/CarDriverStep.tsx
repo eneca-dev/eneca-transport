@@ -128,13 +128,8 @@ export function CarDriverStep({
                   {driver.blocked && (
                     <span className="text-fg-soft"> — {driverBlockerText(driver.blocked)}</span>
                   )}
-                  {/* Без привязки Telegram водитель не получит назначение: бот
-                      не может написать первым тому, кто ему не писал. */}
-                  {!driver.blocked && !driver.telegramLinked && (
-                    <span className="block text-xs text-warn-fg">
-                      Telegram не подключён — назначение до него не дойдёт
-                    </span>
-                  )}
+                  {/* Подключён ли у водителя Telegram, автору не показывается: это
+                      забота АХО, и недоставленное сообщение уходит ей. */}
                 </Choice>
               ))}
             </div>

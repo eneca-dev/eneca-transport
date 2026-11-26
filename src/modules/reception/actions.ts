@@ -116,10 +116,10 @@ export async function issueKeys(
     // закрыта предыдущая поездка.
     const { data: busy, error: busyError } = await db
       .from('trips')
-      .select('route, starts_at, ends_at')
+      .select('id, route, starts_at, ends_at')
       .eq('car_id', trip.car_id)
       .eq('status', 'in_trip')
-      .returns<{ route: string; starts_at: string; ends_at: string }[]>();
+      .returns<{ id: number; route: string; starts_at: string; ends_at: string }[]>();
 
     if (busyError) {
       return { success: false, error: 'Не удалось проверить машину. Попробуйте ещё раз.' };
@@ -127,7 +127,7 @@ export async function issueKeys(
     const inTrip = (busy ?? [])[0];
 
     if (inTrip) {
-      const label = tripLabelFrom(inTrip.route, inTrip.starts_at, inTrip.ends_at);
+      const label = tripLabelFrom(inTrip.id, inTrip.starts_at, inTrip.ends_at);
 
       return {
         success: false,

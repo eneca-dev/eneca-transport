@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { BOOKING_BUFFER_MINUTES } from '@/config/app';
 import { getDb } from '@/config/supabase';
 import { minskDayBounds, toMinskDate } from '@/modules/trips/booking';
 
@@ -35,6 +36,14 @@ export interface ReceptionTrip {
   keysIssuedAt: string | null;
   odometerStartKm: number | null;
   odometerEndKm: number | null;
+  /**
+   * Машину только что приняли, и десять минут на осмотр ещё идут: время,
+   * с которого её можно выдавать. `null` — выдавать можно сейчас.
+   *
+   * Считается здесь, а не при нажатии: отказ после нажатия «Выдать» человек
+   * принимает за поломку, а не за правило.
+   */
+  issueFreeFrom: string | null;
 }
 
 export interface ReceptionDay {
@@ -89,7 +98,9 @@ const SELECT =
 /** Заявки, которых на экране нет вовсе: черновик никто не заводил, отмена не едет. */
 const VISIBLE_STATUSES = ['booked', 'docs_ready', 'in_trip', 'closed'];
 
-function toTrip(row: Row): ReceptionTrip {
+const NO_WAIT: ReadonlyMap<string, string> = new Map();
+
+function toTrip(row: Row, freeFrom: ReadonlyMap<string, string> = NO_WAIT): ReceptionTrip {
   return {
     id: row.id,
     status: row.status,
@@ -107,7 +118,54 @@ function toTrip(row: Row): ReceptionTrip {
     keysIssuedAt: row.keys_issued_at,
     odometerStartKm: row.odometer_start_km,
     odometerEndKm: row.odometer_end_km,
+    issueFreeFrom: row.car_id ? (freeFrom.get(row.car_id) ?? null) : null,
   };
+}
+
+/**
+ * По каким машинам десять минут на приём и осмотр ещё идут.
+ *
+ * Ключ — машина, значение — время, с которого её можно выдать. Берутся только
+ * возвраты за последние десять минут: всё, что раньше, уже свободно.
+ */
+async function recentReturns(carIds: (string | null)[], now: Date): Promise<Map<string, string>> {
+  const free = new Map<string, string>();
+  const ids = [...new Set(carIds.filter((id): id is string => id !== null))];
+
+  if (ids.length === 0) {
+    return free;
+  }
+
+  const since = new Date(now.getTime() - BOOKING_BUFFER_MINUTES * 60_000).toISOString();
+
+  const { data, error } = await getDb()
+    .from('trips')
+    .select('car_id, keys_returned_at')
+    .in('car_id', ids)
+    .eq('status', 'closed')
+    .gte('keys_returned_at', since)
+    .order('keys_returned_at', { ascending: false })
+    .returns<{ car_id: string; keys_returned_at: string }[]>();
+
+  if (error) {
+    // Из-за сбоя проверки выдачу не запрещаем: при нажатии то же правило
+    // повторит `issueTooSoon`, и причина будет названа там.
+    console.error('Не удалось проверить недавние возвраты', error);
+    return free;
+  }
+
+  for (const row of data ?? []) {
+    if (!free.has(row.car_id)) {
+      free.set(
+        row.car_id,
+        new Date(
+          new Date(row.keys_returned_at).getTime() + BOOKING_BUFFER_MINUTES * 60_000,
+        ).toISOString(),
+      );
+    }
+  }
+
+  return free;
 }
 
 /** Границы показанного дня. Полдень, чтобы разбор даты не уехал через сутки. */
@@ -149,8 +207,8 @@ async function listPlannedDay(day: string): Promise<ReceptionDay> {
   return {
     day,
     isToday: false,
-    issues: (issues.data ?? []).map(toTrip),
-    returns: (returns.data ?? []).map(toTrip),
+    issues: (issues.data ?? []).map((row) => toTrip(row)),
+    returns: (returns.data ?? []).map((row) => toTrip(row)),
     early: [],
     overdue: [],
     stale: [],
@@ -238,13 +296,18 @@ export async function listReceptionDay(day?: string, now = new Date()): Promise<
     }
   }
 
+  const freeFrom = await recentReturns(
+    (issues.data ?? []).map((row) => row.car_id),
+    now,
+  );
+
   return {
     day: today,
     isToday: true,
-    issues: (issues.data ?? []).map(toTrip),
+    issues: (issues.data ?? []).map((row) => toTrip(row, freeFrom)),
     returns,
     early,
     overdue,
-    stale: (stale.data ?? []).map(toTrip),
+    stale: (stale.data ?? []).map((row) => toTrip(row)),
   };
 }

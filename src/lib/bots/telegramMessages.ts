@@ -34,7 +34,7 @@ export interface AssignmentMessage {
  */
 export function messageT1(trip: AssignmentMessage): string {
   const lines = [
-    tripLabel(trip.route, new Date(trip.startsAt), new Date(trip.endsAt)),
+    tripLabel(trip.tripId, new Date(trip.startsAt), new Date(trip.endsAt)),
     formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt)),
     trip.route,
     '',
@@ -180,7 +180,7 @@ export function messageMyTrips(trips: DriverTripLine[]): string {
 
   const lines = trips.map((trip) =>
     [
-      `${tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)} · ${trip.status}`,
+      `${tripLabelFrom(trip.tripId, trip.startsAt, trip.endsAt)} · ${trip.status}`,
       `${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} · ${trip.route}`,
       trip.carLabel ?? 'машина не указана',
     ].join('\n'),
@@ -239,7 +239,7 @@ export function messageDriverDay(
 
   const blocks = trips.map((trip) => {
     const lines = [
-      `${tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)} · ${trip.status}`,
+      `${tripLabelFrom(trip.tripId, trip.startsAt, trip.endsAt)} · ${trip.status}`,
       `${formatPeriod(new Date(trip.startsAt), new Date(trip.endsAt))} · ${trip.route}`,
       trip.carLabel ?? 'машина не указана',
     ];

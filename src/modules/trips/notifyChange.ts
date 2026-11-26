@@ -6,10 +6,11 @@ import { sendTelegramMessage } from '@/lib/bots/telegram';
 import { messageT4 } from '@/lib/bots/telegramMessages';
 import { getDb } from '@/config/supabase';
 import { listEmployeesByRole } from '@/modules/employees/queries';
-import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
+import { deliverOnce } from '@/modules/notifications/outbox';
 
 import { listCarOptions, listDriverOptions } from './availability';
 import { tripRef } from './tripLabel';
+import { skipDriverDelivery } from './undelivered';
 
 import type { BookingAffected, TripCardData, TripChange } from '@/lib/bots/cards';
 
@@ -180,7 +181,12 @@ export async function notifyTripChanged(
   const chatId = trip.drivers?.telegram_chat_id ?? null;
 
   if (chatId === null) {
-    await skipDelivery(entry, 'У водителя не подключён Telegram');
+    await skipDriverDelivery(entry, {
+      tripId,
+      driverId: trip.driver_id,
+      driverName: trip.drivers?.full_name ?? 'водитель',
+      what: 'сообщение об изменении поездки',
+    });
     return;
   }
 

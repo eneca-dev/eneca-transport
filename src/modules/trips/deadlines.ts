@@ -3,7 +3,7 @@ import 'server-only';
 import {
   DRIVER_CONFIRMATION_MINUTES,
   NO_DRIVER_ASK_HOURS,
-  URGENT_DEPARTURE_HOURS,
+  RETURN_REPEAT_HOURS,
 } from '@/config/app';
 import { getDb } from '@/config/supabase';
 
@@ -51,46 +51,55 @@ interface TripIdRow {
   id: number;
 }
 
+interface DueTripRow {
+  id: number;
+  ends_at: string;
+}
+
+/** Пора ли повторить просьбу о возврате: прошло два часа после планового. */
+function isRepeatDue(endsAt: string, now: number): boolean {
+  return now - new Date(endsAt).getTime() >= RETURN_REPEAT_HOURS * 3_600_000;
+}
+
 /**
  * Водитель не ответил за отведённое время.
  *
  * Отсчёт идёт от `driver_assigned_at` — момента отправки Т1, как в требованиях,
  * а не от создания заявки: при замене водителя отсчёт начинается заново.
  *
- * Вне рабочего времени молчание не объявляется. Иначе заявка, заведённая в
- * пятницу в 22:00, в 22:15 даёт водителю Т2 «подтверждение не получено», АХО —
- * К14 «водитель не подтвердил», и вся ветка замены срабатывает на ровном
- * месте: водитель просто спал. Срок при этом не отменяется, он лишь не
- * истекает, пока никто не работает.
+ * Вне рабочего времени молчание не объявляется вовсе. Иначе заявка,
+ * заведённая в пятницу в 22:00, в 22:15 даёт АХО К14 «водитель не
+ * подтвердил», и вся ветка замены срабатывает на ровном месте: водитель
+ * просто спал. Срок не отменяется, он лишь не истекает, пока никто не
+ * работает, — и в понедельник в девять утра истечёт.
  *
- * Исключение — близкий выезд: о нём АХО должна узнать сразу, в какой бы час
- * это ни случилось. Поэтому подтверждение переводится в `timeout` и ночью,
- * если выезжать меньше чем через `URGENT_DEPARTURE_HOURS` часов.
+ * Исключений нет, в том числе для близкого выезда. Ночью замену всё равно
+ * никто не назначит, а разбудить ради этого троих — худшее из двух.
  *
  * Переводится именно состояние, а не только отправка сообщений: пока стоит
  * `pending`, водитель может нажать «Подтверждаю» и ночью, и это сработает.
  */
 async function expireDriverConfirmations(): Promise<number> {
-  const db = getDb();
   const now = new Date();
+
+  if (!isMinskWorkingTime(now)) {
+    return 0;
+  }
+
+  const db = getDb();
   const deadline = new Date(now.getTime() - DRIVER_CONFIRMATION_MINUTES * 60_000).toISOString();
 
   // Статус меняется тем же запросом, которым ищется: между выборкой и
   // обновлением водитель мог успеть нажать «Подтверждаю», и перезаписывать его
   // ответ нельзя.
-  let query = db
+  const { data, error } = await db
     .from('trips')
     .update({ driver_confirmation: 'timeout', updated_at: now.toISOString() })
     .eq('driver_confirmation', 'pending')
     .lte('driver_assigned_at', deadline)
-    .in('status', ['booked', 'docs_ready', 'in_trip']);
-
-  if (!isMinskWorkingTime(now)) {
-    const urgent = new Date(now.getTime() + URGENT_DEPARTURE_HOURS * 60 * 60_000);
-    query = query.lte('starts_at', urgent.toISOString());
-  }
-
-  const { data, error } = await query.select('id').returns<TripIdRow[]>();
+    .in('status', ['booked', 'docs_ready', 'in_trip'])
+    .select('id')
+    .returns<TripIdRow[]>();
 
   if (error) {
     throw new Error(`Не удалось отметить неподтверждённые назначения: ${error.message}`);
@@ -133,8 +142,16 @@ async function expireDriverConfirmations(): Promise<number> {
  * выберет — ехать самому или отменить. Значит повторный проход найдёт ту же
  * поездку, и от повторной отправки защищает только занятый ключ `K16:trip:N`.
  * Поэтому ключ занимается до отправки, а не после.
+ *
+ * Вне рабочего времени вопрос не задаётся: он о том же, о чём молчание
+ * водителя. Если два часа до выезда пришлись на ночь, карточка уйдёт в девять
+ * утра — выбор «поеду сам или отменить» остаётся настоящим и тогда.
  */
 async function askAuthorsWithoutDriver(): Promise<number> {
+  if (!isMinskWorkingTime(new Date())) {
+    return 0;
+  }
+
   const db = getDb();
   const askFrom = new Date(Date.now() + NO_DRIVER_ASK_HOURS * 3_600_000).toISOString();
 
@@ -172,18 +189,23 @@ async function askAuthorsWithoutDriver(): Promise<number> {
  *
  * Состояние поездки не меняется, поэтому каждый проход найдёт её снова —
  * от повторной отправки защищает занятый ключ `K8:trip:N`.
+ *
+ * Через `RETURN_REPEAT_HOURS` после планового возврата уходит повтор с другим
+ * ключом — один раз. Так в требованиях: «ключи не сданы — через 2 часа
+ * повтор», а утром К15 уже и автору, и АХО.
  */
 async function askAuthorsToReturn(): Promise<number> {
   const db = getDb();
+  const now = Date.now();
 
   const { data, error } = await db
     .from('trips')
-    .select('id')
+    .select('id, ends_at')
     .eq('status', 'in_trip')
     .eq('needs_driver', false)
     .is('odometer_end_km', null)
-    .lte('ends_at', new Date().toISOString())
-    .returns<TripIdRow[]>();
+    .lte('ends_at', new Date(now).toISOString())
+    .returns<DueTripRow[]>();
 
   if (error) {
     throw new Error(`Не удалось найти поездки к возврату: ${error.message}`);
@@ -194,6 +216,10 @@ async function askAuthorsToReturn(): Promise<number> {
   for (const trip of trips) {
     try {
       await notifyReturnDue(trip.id);
+
+      if (isRepeatDue(trip.ends_at, now)) {
+        await notifyReturnDue(trip.id, true);
+      }
     } catch (notifyError) {
       console.error(`Поездка #${trip.id}: К8 не ушла`, notifyError);
     }
@@ -210,16 +236,17 @@ async function askAuthorsToReturn(): Promise<number> {
  */
 async function askDriversToReturn(): Promise<number> {
   const db = getDb();
+  const now = Date.now();
 
   const { data, error } = await db
     .from('trips')
-    .select('id')
+    .select('id, ends_at')
     .eq('status', 'in_trip')
     .eq('needs_driver', true)
     .not('driver_id', 'is', null)
     .is('odometer_end_km', null)
-    .lte('ends_at', new Date().toISOString())
-    .returns<TripIdRow[]>();
+    .lte('ends_at', new Date(now).toISOString())
+    .returns<DueTripRow[]>();
 
   if (error) {
     throw new Error(`Не удалось найти поездки водителей к возврату: ${error.message}`);
@@ -230,6 +257,10 @@ async function askDriversToReturn(): Promise<number> {
   for (const trip of trips) {
     try {
       await notifyDriverReturnDue(trip.id);
+
+      if (isRepeatDue(trip.ends_at, now)) {
+        await notifyDriverReturnDue(trip.id, true);
+      }
     } catch (notifyError) {
       console.error(`Поездка #${trip.id}: Т5 не ушла`, notifyError);
     }

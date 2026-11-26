@@ -21,9 +21,11 @@ import {
   handleCalendarCallback,
   isCalendarCallback,
 } from '@/modules/drivers/calendar';
-import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
+import { deliverOnce } from '@/modules/notifications/outbox';
 
 import { sendFailureReason } from './notify';
+import { tripLabelFrom } from './tripLabel';
+import { ahoRecipients, skipDriverDelivery } from './undelivered';
 
 import type { TripCardData } from '@/lib/bots/cards';
 import type { AssignmentMessage } from '@/lib/bots/telegramMessages';
@@ -152,7 +154,12 @@ export async function notifyDriverAssigned(tripId: number): Promise<void> {
     };
 
     if (driver.telegram_chat_id === null) {
-      await skipDelivery(entry, 'У водителя не подключён Telegram');
+      await skipDriverDelivery(entry, {
+        tripId,
+        driverId: driver.id,
+        driverName: driver.full_name,
+        what: 'запрос подтверждения поездки',
+      });
       return;
     }
 
@@ -192,36 +199,6 @@ export async function notifyDriverTimeout(tripId: number): Promise<void> {
   }
 
   await notifyAhoDriverMissing(trip, trip.drivers.full_name, 'timeout');
-}
-
-interface AhoPerson {
-  id: string;
-  entra_oid: string;
-  display_name: string;
-  is_active: boolean;
-}
-
-/**
- * Кому из АХО уходят карточки о водителях.
- *
- * Роль, а не конкретный человек: в требованиях К14 адресована Дарье, но
- * сотрудников АХО может быть несколько, и назначать замену может любой.
- */
-async function ahoRecipients(purpose: string): Promise<AhoPerson[]> {
-  const { data, error } = await getDb()
-    .from('employee_roles')
-    .select('employees!employee_roles_employee_id_fkey(id, entra_oid, display_name, is_active)')
-    .eq('role', 'aho')
-    .returns<{ employees: AhoPerson | null }[]>();
-
-  if (error) {
-    console.error(`Не удалось найти сотрудников АХО для ${purpose}`, error);
-    return [];
-  }
-
-  return (data ?? [])
-    .map((row) => row.employees)
-    .filter((person): person is AhoPerson => person !== null && person.is_active);
 }
 
 /** К14: сообщить АХО, что водителя нет. */
@@ -307,7 +284,12 @@ export async function notifyDriverConfirmedByAho(tripId: number): Promise<void> 
     };
 
     if (driver.telegram_chat_id === null) {
-      await skipDelivery(entry, 'У водителя не подключён Telegram');
+      await skipDriverDelivery(entry, {
+        tripId,
+        driverId: driver.id,
+        driverName: driver.full_name,
+        what: 'сообщение о том, что поездка закреплена за ним',
+      });
       return;
     }
 
@@ -625,17 +607,18 @@ export async function handleDriverCallback(callback: DriverCallback): Promise<vo
  *
  * Отдельно от К12, потому что водителю нужно не «что изменилось в заявке», а
  * одно: ехать больше не надо.
+ *
+ * Имя сменщика не называется: водителю оно ни к чему, а расстановку людей
+ * ведёт АХО и объясняет её сама, если надо.
  */
-export async function notifyDriverUnassigned(
-  tripId: number,
-  driverId: string,
-  replacedBy: string,
-): Promise<void> {
+export async function notifyDriverUnassigned(tripId: number, driverId: string): Promise<void> {
+  const trip = await loadTrip(tripId);
+
   const { data: driver, error } = await getDb()
     .from('drivers')
-    .select('telegram_chat_id')
+    .select('full_name, telegram_chat_id')
     .eq('id', driverId)
-    .maybeSingle<{ telegram_chat_id: number | null }>();
+    .maybeSingle<{ full_name: string; telegram_chat_id: number | null }>();
 
   const entry = {
     template: 'T4',
@@ -645,8 +628,13 @@ export async function notifyDriverUnassigned(
     dedupeKey: `T4:trip:${tripId}:unassigned:${Date.now()}`,
   };
 
-  if (error || driver?.telegram_chat_id === null || driver === null) {
-    await skipDelivery(entry, 'У водителя не подключён Telegram');
+  if (error || driver === null || driver.telegram_chat_id === null) {
+    await skipDriverDelivery(entry, {
+      tripId,
+      driverId,
+      driverName: driver?.full_name ?? 'водитель',
+      what: 'сообщение о снятии с поездки',
+    });
     return;
   }
 
@@ -656,9 +644,9 @@ export async function notifyDriverUnassigned(
     sendTelegramMessage(
       chatId,
       [
-        `Поездка #${tripId}: вас сняли с поездки.`,
+        `${trip ? tripLabelFrom(trip.id, trip.starts_at, trip.ends_at) : `Поездка ${tripId}`}: вас сняли с поездки.`,
         '',
-        `Поедет ${replacedBy}. Ничего делать не нужно.`,
+        'Ничего делать не нужно.',
       ].join('\n'),
       { withKeyboard: true },
     ),

@@ -109,6 +109,26 @@ function odometerFrom(trip: ReceptionTrip): string {
   return trip.authorName;
 }
 
+/**
+ * Почему «Выдать» сейчас не нажать. `null` — нажать можно.
+ *
+ * Две причины, и обе называются до нажатия: документы и десять минут на
+ * осмотр машины после прошлого возврата.
+ */
+function issueBlocker(trip: ReceptionTrip, now: Date): string | null {
+  if (!trip.docsReady) {
+    return trip.docsRecheckRequired
+      ? 'Документы на повторной проверке у финотдела'
+      : 'Сначала финотдел готовит документы';
+  }
+
+  if (trip.issueFreeFrom && new Date(trip.issueFreeFrom) > now) {
+    return `Машину только что приняли. Выдать можно с ${formatTime(new Date(trip.issueFreeFrom))} — десять минут на приём и осмотр`;
+  }
+
+  return null;
+}
+
 /** Состояние поездки на другой день: вместо кнопки, которой там нет. */
 function planLabel(trip: ReceptionTrip): string {
   if (trip.status === 'closed') {
@@ -140,7 +160,7 @@ function Row({ trip, time, detail, action }: RowProps) {
       <div className="min-w-0 flex-1">
         <p>
           <span className="font-medium">
-            {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
+            {tripLabelFrom(trip.id, trip.startsAt, trip.endsAt)}
           </span>{' '}
           <span className="text-sm">{trip.carLabel ?? '—'}</span>{' '}
           <span className="text-sm text-fg-soft">
@@ -172,6 +192,16 @@ export function ReceptionScreen() {
   const [data, setData] = useState<ReceptionDay | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Часы для десятиминутного осмотра: без них кнопка «Выдать» осталась бы
+  // серой до перезагрузки страницы, хотя время уже вышло. Полминуты хватает:
+  // человек стоит у стойки, а не следит за секундами.
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const run = useCallback(
     (
@@ -343,6 +373,12 @@ export function ReceptionScreen() {
                   <p className="mt-0.5 text-sm">
                     {!live ? (
                       <span className="text-fg-soft">{planLabel(trip)}</span>
+                    ) : trip.docsReady && trip.issueFreeFrom && new Date(trip.issueFreeFrom) > now ? (
+                      <span className={`${BADGE} bg-warn text-warn-fg`}>
+                        <span className={BADGE_DOT} aria-hidden />
+                        осмотр машины — выдать можно с{' '}
+                        {formatTime(new Date(trip.issueFreeFrom))}
+                      </span>
                     ) : trip.docsReady ? (
                       <span className="text-fg-soft">Документы: готовы</span>
                     ) : (
@@ -360,11 +396,11 @@ export function ReceptionScreen() {
                     <button
                       type="button"
                       onClick={() => run((token) => issueKeys(token, trip.id), true)}
-                      disabled={pending || !trip.docsReady}
+                      disabled={pending || issueBlocker(trip, now) !== null}
                       className={BUTTON_PRIMARY_SM}
-                      // Без готовых документов выдавать нечего: рецепция выдаёт
-                      // их вместе с ключами.
-                      title={trip.docsReady ? undefined : 'Сначала финотдел готовит документы'}
+                      // Причина недоступности названа до нажатия: отказ после
+                      // нажатия человек принимает за поломку.
+                      title={issueBlocker(trip, now) ?? undefined}
                     >
                       Выдать
                     </button>

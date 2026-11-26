@@ -160,7 +160,7 @@ function period(trip: TripCardData): string {
  * списке чатов видно именно его, а «Поездка #127» не говорит ничего.
  */
 function label(trip: TripCardData): string {
-  return tripLabelFrom(trip.route, trip.startsAt, trip.endsAt);
+  return tripLabelFrom(trip.id, trip.startsAt, trip.endsAt);
 }
 
 /**
@@ -220,7 +220,7 @@ export function cardCancelConfirm(
   route: string,
 ): unknown {
   return buildCard({
-    title: `Отменить ${tripLabelFrom(route, startsAt, endsAt)}?`,
+    title: `Отменить ${tripLabelFrom(tripId, startsAt, endsAt)}?`,
     subtitle: `${formatPeriod(new Date(startsAt), new Date(endsAt))} · ${route}`,
     facts: [],
     note:
@@ -332,7 +332,11 @@ export function cardK4(trip: TripCardData): unknown {
  * Значения полей Teams присылает вместе с данными кнопки, поэтому отдельно
  * их передавать не надо.
  */
-export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
+export function cardK8(
+  trip: TripCardData,
+  odometerStartKm: number,
+  repeat = false,
+): unknown {
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
@@ -340,7 +344,9 @@ export function cardK8(trip: TripCardData, odometerStartKm: number): unknown {
     body: [
       {
         type: 'TextBlock',
-        text: `${label(trip)} · время возврата`,
+        text: repeat
+          ? `${label(trip)} · ключи ещё не сданы`
+          : `${label(trip)} · время возврата`,
         weight: 'Bolder',
         size: 'Medium',
         wrap: true,
@@ -1007,6 +1013,41 @@ export function cardDone(title: string, facts: CardFact[], result: string): unkn
  * в адаптивной карточке нечитаем на телефоне. Бронь автомобиля сохраняется, об
  * этом сказано прямо в карточке, чтобы АХО не бросилась бронировать заново.
  */
+/**
+ * АХО: сообщение водителю не дошло.
+ *
+ * Не К-карточка из требований: там этого случая нет вовсе. Появилась потому,
+ * что бот Telegram не может написать первым тому, кто не вводил код, и до
+ * сих пор об этом не знал никто — пропуск оставался строкой в журнале.
+ *
+ * Автору такое не показывается: код выдаёт АХО, и сделать с этим он ничего
+ * не может.
+ */
+export function cardUndelivered(
+  label: string,
+  tripId: number,
+  route: string,
+  driverName: string,
+  what: string,
+): unknown {
+  return buildCard({
+    title: `${label} · водителю не дошло сообщение`,
+    subtitle: route,
+    facts: [
+      { title: 'Водитель', value: driverName },
+      { title: 'Не доставлено', value: what },
+      { title: 'Причина', value: 'не подключён Telegram' },
+    ],
+    note:
+      'Выдайте код в разделе «Водители» и передайте его водителю. ' +
+      'Пока он не подключён, бот до него не достучится — о поездке придётся сказать голосом.',
+    actions: [
+      { kind: 'open', title: 'Открыть поездку', tripId },
+      { kind: 'screen', title: 'Водители', screen: 'drivers' },
+    ],
+  });
+}
+
 export function cardK14(
   trip: TripCardData,
   driverName: string,

@@ -19,6 +19,7 @@ const filtersSchema = z
     until: z.string().regex(DATE, 'Укажите конец периода'),
     carId: z.string().uuid().nullable(),
     employeeId: z.string().uuid().nullable(),
+    department: z.string().trim().max(200).nullable(),
   })
   .refine((value) => value.until >= value.since, {
     message: 'Конец периода раньше начала',
@@ -54,6 +55,7 @@ export async function loadHistory(
         until: parsed.data.until,
         carId: parsed.data.carId ?? undefined,
         employeeId: parsed.data.employeeId ?? undefined,
+        department: parsed.data.department || undefined,
       }),
     };
   } catch (error) {
@@ -63,7 +65,9 @@ export async function loadHistory(
 
 export async function loadHistoryFilters(
   token: string,
-): Promise<ActionResult<{ cars: FilterOption[]; employees: FilterOption[] }>> {
+): Promise<
+  ActionResult<{ cars: FilterOption[]; employees: FilterOption[]; departments: string[] }>
+> {
   try {
     await requireRole(token, 'aho');
     return { success: true, data: await listHistoryFilters() };

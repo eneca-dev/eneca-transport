@@ -221,7 +221,7 @@ export async function handleCardAction(
         return { message: 'Ключи уже выданы — отменять поздно, машину надо принять.', done: true };
       }
       return {
-        message: `Отменить ${tripLabelFrom(trip.route, trip.starts_at, trip.ends_at)}?`,
+        message: `Отменить ${tripLabelFrom(trip.id, trip.starts_at, trip.ends_at)}?`,
         done: false,
         reply: cardCancelConfirm(trip.id, trip.starts_at, trip.ends_at, trip.route),
       };

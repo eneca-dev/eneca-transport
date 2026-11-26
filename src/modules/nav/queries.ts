@@ -47,7 +47,7 @@ async function safely<T>(what: string, value: () => Promise<T>, fallback: T): Pr
 function fromReception(trip: ReceptionTrip): AttentionTrip {
   return {
     id: trip.id,
-    label: tripLabelFrom(trip.route, trip.startsAt, trip.endsAt),
+    label: tripLabelFrom(trip.id, trip.startsAt, trip.endsAt),
     startsAt: trip.startsAt,
     endsAt: trip.endsAt,
     carId: trip.carId,
@@ -64,7 +64,7 @@ function fromReception(trip: ReceptionTrip): AttentionTrip {
 function fromQueue(item: DocumentQueueItem): AttentionTrip {
   return {
     id: item.id,
-    label: tripLabelFrom(item.route, item.startsAt, item.endsAt),
+    label: tripLabelFrom(item.id, item.startsAt, item.endsAt),
     startsAt: item.startsAt,
     endsAt: item.endsAt,
     carId: null,
@@ -82,7 +82,7 @@ function fromQueue(item: DocumentQueueItem): AttentionTrip {
 function fromList(trip: TripListItem): AttentionTrip {
   return {
     id: trip.id,
-    label: tripLabelFrom(trip.route, trip.startsAt, trip.endsAt),
+    label: tripLabelFrom(trip.id, trip.startsAt, trip.endsAt),
     startsAt: trip.startsAt,
     endsAt: trip.endsAt,
     carId: trip.carId,
@@ -115,13 +115,13 @@ async function nextBookings(
 
   const { data, error } = await getDb()
     .from('trips')
-    .select('car_id, route, starts_at, ends_at')
+    .select('id, car_id, route, starts_at, ends_at')
     .in('car_id', carIds)
     .in('status', ['booked', 'docs_ready'])
     .gte('starts_at', now.toISOString())
     .lte('starts_at', new Date(now.getTime() + URGENT_TRIP_HOURS * 3_600_000).toISOString())
     .order('starts_at')
-    .returns<{ car_id: string; route: string; starts_at: string; ends_at: string }[]>();
+    .returns<{ id: number; car_id: string; route: string; starts_at: string; ends_at: string }[]>();
 
   if (error) {
     console.error('Не удалось прочитать следующие брони просроченных машин', error);
@@ -132,7 +132,7 @@ async function nextBookings(
     // Запрос отсортирован по времени, поэтому первая найденная — ближайшая.
     if (!found.has(row.car_id)) {
       found.set(row.car_id, {
-        label: tripLabelFrom(row.route, row.starts_at, row.ends_at),
+        label: tripLabelFrom(row.id, row.starts_at, row.ends_at),
         startsAt: row.starts_at,
       });
     }

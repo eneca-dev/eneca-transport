@@ -12,10 +12,11 @@ import {
 import { getDb } from '@/config/supabase';
 import { formatMoment } from '@/lib/datetime';
 import { listEmployeesByRole } from '@/modules/employees/queries';
-import { deliverOnce, skipDelivery } from '@/modules/notifications/outbox';
+import { deliverOnce } from '@/modules/notifications/outbox';
 
 import { isMinskWeekend, minskDayBounds, minskHour, toMinskDate } from './booking';
 import { tripLabelFrom, tripRef } from './tripLabel';
+import { skipDriverDelivery } from './undelivered';
 
 import type { TripCardData } from '@/lib/bots/cards';
 
@@ -131,7 +132,12 @@ async function remindDayBefore(now: Date): Promise<number> {
       const chatId = trip.drivers?.telegram_chat_id ?? null;
 
       if (chatId === null) {
-        await skipDelivery(entry, 'У водителя не подключён Telegram');
+        await skipDriverDelivery(entry, {
+          tripId: trip.id,
+          driverId: trip.driver_id,
+          driverName: trip.drivers?.full_name ?? 'водитель',
+          what: 'напоминание накануне выезда',
+        });
       } else {
         const carLabel = trip.cars ? `${trip.cars.model} ${trip.cars.plate}` : null;
         await deliverOnce(entry, () =>
@@ -205,7 +211,7 @@ async function remindReception(now: Date): Promise<number> {
   const recipients = await listEmployeesByRole('reception');
   const card = cardK6(
     counts,
-    overdue.map((row) => tripLabelFrom(row.route, row.starts_at, row.ends_at)),
+    overdue.map((row) => tripLabelFrom(row.id, row.starts_at, row.ends_at)),
   );
 
   for (const person of recipients) {

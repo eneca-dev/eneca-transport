@@ -13,6 +13,10 @@ import type { TripCardData } from '@/lib/bots/cards';
  * Отправляется планировщиком в плановое время возврата. Поездку с водителем
  * возвращает сам водитель из Telegram, поэтому автору К8 не уходит: иначе
  * одометр вводили бы двое.
+ *
+ * `repeat` — тот же запрос через два часа, если ключи так и не сданы. У него
+ * свой ключ защиты от повтора и свой заголовок: «ключи ещё не сданы» вместо
+ * «время возврата», иначе человек решит, что пришло то же самое сообщение.
  */
 
 interface TripRow {
@@ -32,7 +36,7 @@ const SELECT =
   'id, starts_at, ends_at, route, contract, purpose, author_id, odometer_start_km, ' +
   'cars(plate, model), employees!trips_author_id_fkey(entra_oid, display_name)';
 
-export async function notifyReturnDue(tripId: number): Promise<void> {
+export async function notifyReturnDue(tripId: number, repeat = false): Promise<void> {
   const { data: trip, error } = await getDb()
     .from('trips')
     .select(SELECT)
@@ -65,13 +69,13 @@ export async function notifyReturnDue(tripId: number): Promise<void> {
       channel: 'teams',
       tripId,
       recipient: { employeeId: trip.author_id },
-      dedupeKey: `K8:trip:${tripId}`,
+      dedupeKey: repeat ? `K8:repeat:trip:${tripId}` : `K8:trip:${tripId}`,
     },
     () =>
       sendCard(
         trip.author_id,
         author.entra_oid,
-        cardK8(data, trip.odometer_start_km ?? 0),
+        cardK8(data, trip.odometer_start_km ?? 0, repeat),
       ),
   );
 }

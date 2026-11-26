@@ -251,7 +251,7 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
           </span>
         </div>
         <p className="mt-1 text-base font-medium">
-          {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}
+          {tripLabelFrom(trip.id, trip.startsAt, trip.endsAt)}
         </p>
         <p className="mt-0.5 text-sm text-fg-soft">{trip.route}</p>
       </div>
@@ -518,7 +518,7 @@ export function TripCardScreen({ tripId }: TripCardScreenProps) {
       {confirmCancel && (
         <div className="mt-4 rounded-lg border border-bad-line bg-bad p-4 text-sm text-bad-fg">
           <p className="font-medium">
-            Отменить {tripLabelFrom(trip.route, trip.startsAt, trip.endsAt)}?
+            Отменить {tripLabelFrom(trip.id, trip.startsAt, trip.endsAt)}?
           </p>
           <p className="mt-1">
             Машина и водитель освободятся, подготовка документов прекратится. Отменённую поездку

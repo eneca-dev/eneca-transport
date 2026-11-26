@@ -281,7 +281,7 @@ export async function assignDriver(
   // Прежнему водителю — Т4, новому — Т1. Порядок важен: сначала снятый должен
   // узнать, что ехать не нужно.
   if (trip.driver_id) {
-    await notifyDriverUnassigned(tripId, trip.driver_id, next);
+    await notifyDriverUnassigned(tripId, trip.driver_id);
   }
 
   await notifyTripChanged(
