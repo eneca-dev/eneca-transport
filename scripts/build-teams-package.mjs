@@ -2,7 +2,7 @@
 // и client id + иконки. Иконки-заглушки создаются, если их ещё нет.
 // Запуск: node --env-file=.env.local scripts/build-teams-package.mjs
 
-import { deflateSync } from 'node:zlib';
+import { deflateSync, deflateRawSync } from 'node:zlib';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -110,19 +110,107 @@ for (const [name, data] of [
   writeFileSync(target, existsSync(custom) ? readFileSync(custom) : data);
 }
 
-// Прошлый архив удаляется: иначе Compress-Archive с маской `build/*` упакует
-// его внутрь нового, и Teams откажется принимать такой пакет.
-const stale = join(BUILD_DIR, 'eneca-transport.zip');
-if (existsSync(stale)) {
-  rmSync(stale);
+// --- Архив для загрузки в Teams ----------------------------------------------
+
+// Пакет собирается здесь же, а не отдельной командой в PowerShell. Причина не
+// в удобстве: `Compress-Archive -Path teams/build/*` зависит от того, из какой
+// папки его запустили, и упаковывает прошлый архив внутрь нового, если тот
+// остался. Teams такой пакет не принимает, и понять это можно только по его
+// отказу. Формат ZIP без сторонних зависимостей — три структуры из четырёх
+// полей, и zlib уже под рукой.
+
+const ZIP_VERSION = 20; // 2.0 — дефлейт, без ZIP64
+const DEFLATED = 8;
+
+/** Время в формате MS-DOS: секунды с шагом 2, год от 1980. */
+function dosTime(date) {
+  const time =
+    (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const day = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { time, day };
 }
 
-console.log(`Готово: ${BUILD_DIR}`);
+function zip(files, when = new Date()) {
+  const { time, day } = dosTime(when);
+  const parts = [];
+  const central = [];
+  let offset = 0;
+
+  for (const { name, data } of files) {
+    const nameBytes = Buffer.from(name, 'utf8');
+    const body = deflateRawSync(data, { level: 9 });
+    const crc = crc32(data);
+
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(ZIP_VERSION, 4);
+    local.writeUInt16LE(0, 6); // флаги: имя в UTF-8 не помечаем, оно ASCII
+    local.writeUInt16LE(DEFLATED, 8);
+    local.writeUInt16LE(time, 10);
+    local.writeUInt16LE(day, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    local.writeUInt16LE(0, 28); // extra
+
+    parts.push(local, nameBytes, body);
+
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt16LE(ZIP_VERSION, 4); // кем создан
+    entry.writeUInt16LE(ZIP_VERSION, 6); // что требуется для распаковки
+    entry.writeUInt16LE(0, 8);
+    entry.writeUInt16LE(DEFLATED, 10);
+    entry.writeUInt16LE(time, 12);
+    entry.writeUInt16LE(day, 14);
+    entry.writeUInt32LE(crc, 16);
+    entry.writeUInt32LE(body.length, 20);
+    entry.writeUInt32LE(data.length, 24);
+    entry.writeUInt16LE(nameBytes.length, 28);
+    entry.writeUInt16LE(0, 30); // extra
+    entry.writeUInt16LE(0, 32); // комментарий
+    entry.writeUInt16LE(0, 34); // номер диска
+    entry.writeUInt16LE(0, 36); // внутренние атрибуты
+    entry.writeUInt32LE(0, 38); // внешние атрибуты
+    entry.writeUInt32LE(offset, 42);
+
+    central.push(entry, nameBytes);
+    offset += local.length + nameBytes.length + body.length;
+  }
+
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4); // номер диска
+  end.writeUInt16LE(0, 6); // диск с оглавлением
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20); // комментарий
+
+  return Buffer.concat([...parts, directory, end]);
+}
+
+// Файлы лежат в корне архива — Teams не принимает пакет, где манифест внутри
+// папки. Прошлый архив удаляется, а не перезаписывается: иначе он попал бы
+// в список файлов нового.
+const archive = join(BUILD_DIR, 'eneca-transport.zip');
+if (existsSync(archive)) {
+  rmSync(archive);
+}
+
+const names = ['manifest.json', 'color.png', 'outline.png'];
+writeFileSync(
+  archive,
+  zip(names.map((name) => ({ name, data: readFileSync(join(BUILD_DIR, name)) }))),
+);
+
+console.log(`Готово: ${archive}`);
 console.log(`  домен    ${domain}`);
 console.log(`  client id ${clientId}`);
 console.log(`  bot id    ${botId}`);
 console.log('');
-console.log('Собрать архив для загрузки в Teams:');
-console.log(
-  '  Compress-Archive -Path teams/build/* -DestinationPath teams/build/eneca-transport.zip -Force',
-);
+console.log('Загрузить в Teams: Приложения → Управление приложениями →');
+console.log('Загрузить приложение → Загрузить настраиваемое приложение.');

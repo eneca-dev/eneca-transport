@@ -156,5 +156,5 @@ npm run dev             # dev-сервер
 npm run dev:https       # dev-сервер по HTTPS — нужен для вкладки внутри Teams
 npm run build           # production-сборка
 npm run lint            # ESLint
-npm run teams:package   # собрать манифест и иконки приложения Teams (пока нет боевого домена)
+npm run teams:package   # собрать пакет Teams: манифест, иконки и zip для загрузки
 ```
