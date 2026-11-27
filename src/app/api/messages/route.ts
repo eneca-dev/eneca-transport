@@ -52,8 +52,7 @@ export async function POST(request: Request) {
         (member) => member.id === context.activity.recipient?.id,
       );
 
-      // Карточка с кнопками: и при установке, и в ответ на любое сообщение.
-      const sendWelcome = async (firstTime = false) => {
+      const sendHelp = async () => {
         const oid = from?.aadObjectId ?? null;
         const employee = oid ? await findEmployeeByOid(oid) : null;
 
@@ -66,7 +65,7 @@ export async function POST(request: Request) {
           attachments: [
             {
               contentType: 'application/vnd.microsoft.card.adaptive',
-              content: cardWelcome(known, employee?.roles ?? [], firstTime),
+              content: cardWelcome(known, employee?.roles ?? []),
             },
           ],
         });
@@ -74,9 +73,6 @@ export async function POST(request: Request) {
 
       if (type === 'conversationUpdate' && botAdded) {
         await remember();
-        // Установка — единственный момент, когда человек точно смотрит в этот
-        // чат. Молчать в него значит оставить его искать вкладку самому.
-        await sendWelcome(true);
         return;
       }
 
@@ -155,8 +151,8 @@ export async function POST(request: Request) {
         // Бот не ведёт переписку: заявки оформляются во вкладке. Но объяснять
         // это текстом значит оставить человека искать вкладку самому, поэтому
         // ответ — кнопки, которые её открывают. Эта же карточка отвечает на
-        // команду «Помощь».
-        await sendWelcome();
+        // команду «Как пользоваться».
+        await sendHelp();
       }
     });
   } catch (error) {

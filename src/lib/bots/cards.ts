@@ -813,7 +813,7 @@ export function cardK16(trip: TripCardData, driverState: string): unknown {
 }
 
 /**
- * Приветствие при установке и ответ на любое сообщение человека.
+ * Карточка справки в ответ на сообщение сотрудника.
  *
  * Бот не ведёт переписку: заявки оформляются во вкладке. Но отвечать на
  * «здравствуйте» стеной текста «идите во вкладку» — значит оставить человека
@@ -827,26 +827,13 @@ export function cardK16(trip: TripCardData, driverState: string): unknown {
  * сворачивает в «…», поэтому разделы, до которых и так есть меню внутри
  * вкладки, здесь не повторяются.
  */
-export function cardWelcome(
-  knownEmployee: boolean,
-  roles: readonly string[],
-  /** Первый вход: приложение только что поставили, человек здесь впервые. */
-  firstTime = false,
-): unknown {
+export function cardWelcome(knownEmployee: boolean, roles: readonly string[]): unknown {
   const has = (role: string): boolean => roles.includes(role);
 
-  // При первом входе инструкция стоит первой: человека никто не учил, и
-  // начинать ему надо не с заявки. Дальше она уходит в конец — нужна редко.
-  const actions: CardAction[] = firstTime
-    ? [
-        { kind: 'screen', title: 'Как пользоваться', screen: 'help' },
-        { kind: 'screen', title: 'Новая поездка', screen: 'new' },
-        { kind: 'screen', title: 'Мои поездки' },
-      ]
-    : [
-        { kind: 'screen', title: 'Новая поездка', screen: 'new' },
-        { kind: 'screen', title: 'Мои поездки' },
-      ];
+  const actions: CardAction[] = [
+    { kind: 'screen', title: 'Новая поездка', screen: 'new' },
+    { kind: 'screen', title: 'Мои поездки' },
+  ];
 
   if (has('reception') || has('aho')) {
     actions.push({ kind: 'screen', title: 'Рецепция', screen: 'reception' });
@@ -858,22 +845,13 @@ export function cardWelcome(
     actions.push({ kind: 'screen', title: 'Календарь', screen: 'calendar' });
   }
 
-  if (!firstTime) {
-    // Нужна редко, но найтись должна сама.
-    actions.push({ kind: 'screen', title: 'Как пользоваться', screen: 'help' });
-  }
+  actions.push({ kind: 'screen', title: 'Как пользоваться', screen: 'help' });
 
-  const note = firstTime
-    ? [
-        'Сюда будут приходить бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
-        '',
-        'С чего начать: откройте «Как пользоваться» — это один экран. Заявки оформляются во вкладке, кнопки ниже открывают её сразу на нужном месте.',
-      ]
-    : [
-        'Сюда приходят бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
-        '',
-        'Заявки оформляются во вкладке — кнопки ниже открывают её сразу на нужном экране.',
-      ];
+  const note = [
+    'Сюда приходят бронь, готовность документов, выдача ключей и возврат. Отвечать мне не нужно.',
+    '',
+    'Заявки оформляются во вкладке — кнопки ниже открывают её сразу на нужном экране.',
+  ];
 
   // Справочник сотрудников обновляется раз в сутки. Пока человека в нём нет,
   // карточки до него не дойдут, и знать об этом лучше сразу.

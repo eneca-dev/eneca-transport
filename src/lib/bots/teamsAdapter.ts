@@ -23,9 +23,8 @@ let adapter: CloudAdapter | undefined;
 export function getTeamsAdapter(): CloudAdapter {
   if (!adapter) {
     adapter = new CloudAdapter(new ConfigurationBotFrameworkAuthentication(credentials));
-    adapter.onTurnError = async (context, error) => {
-      console.error('Ошибка обработки сообщения Teams-бота', error);
-      await context.sendActivity('Что-то пошло не так. Попробуйте ещё раз или напишите в АХО.');
+    adapter.onTurnError = async (_context, error) => {
+      console.error('Ошибка обработки активности Teams-бота', error);
     };
   }
   return adapter;
