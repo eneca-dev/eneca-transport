@@ -21,10 +21,11 @@ interface DriverFormProps {
 export function DriverForm({ driver, pending, onSubmit, onDelete, onCancel }: DriverFormProps) {
   const [fullName, setFullName] = useState(driver?.fullName ?? '');
   const [phone, setPhone] = useState(driver?.phone ?? '');
+  const [comment, setComment] = useState(driver?.comment ?? '');
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    onSubmit({ fullName, phone });
+    onSubmit({ fullName, phone, comment });
   }
 
   const label = 'mb-1 block text-xs font-medium text-fg-soft';
@@ -53,6 +54,17 @@ export function DriverForm({ driver, pending, onSubmit, onDelete, onCancel }: Dr
           />
         </label>
       </div>
+
+      <label className="mt-3 block">
+        <span className={label}>Комментарий</span>
+        <textarea
+          className={FIELD}
+          rows={2}
+          maxLength={500}
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+        />
+      </label>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="submit" disabled={pending} className={BUTTON_PRIMARY}>

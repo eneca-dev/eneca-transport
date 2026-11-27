@@ -284,6 +284,9 @@ export async function createTrip(
  * ошибки, по нему и различаем, что именно увели — машину или водителя.
  */
 function bookingConflictMessage(error: { code?: string; message: string }): string {
+  if (error.code === 'P0001' && error.message === 'car_odometer_required') {
+    return 'Для машины не указано показание одометра. Выберите другую.';
+  }
   if (error.code !== '23P01') {
     console.error('Не удалось создать бронь', error);
     return 'Не удалось создать заявку.';

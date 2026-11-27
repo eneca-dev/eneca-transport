@@ -28,6 +28,7 @@ export interface CarOption {
   plate: string;
   model: string;
   odometerKm: number;
+  comment: string | null;
   blocked: Blocker | null;
 }
 
@@ -53,6 +54,7 @@ interface CarRow {
   plate: string;
   model: string;
   odometer_km: number;
+  comment: string | null;
   in_repair: boolean;
 }
 
@@ -134,7 +136,8 @@ export async function listCarOptions(
 
   const { data: cars, error } = await db
     .from('v_cars')
-    .select('id, plate, model, odometer_km, in_repair')
+    .select('id, plate, model, odometer_km, comment, in_repair')
+    .not('odometer_km', 'is', null)
     .eq('is_active', true)
     .order('plate')
     .returns<CarRow[]>();
@@ -175,6 +178,7 @@ export async function listCarOptions(
       plate: car.plate,
       model: car.model,
       odometerKm: car.odometer_km,
+      comment: car.comment,
       blocked,
     };
   });

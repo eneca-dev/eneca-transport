@@ -19,13 +19,12 @@ interface CarFormProps {
 export function CarForm({ car, pending, onSubmit, onCancel }: CarFormProps) {
   const [plate, setPlate] = useState(car?.plate ?? '');
   const [model, setModel] = useState(car?.model ?? '');
-  const [odometer, setOdometer] = useState(car ? String(car.odometerKm) : '');
+  const [odometer, setOdometer] = useState(car?.odometerKm == null ? '' : String(car.odometerKm));
+  const [comment, setComment] = useState(car?.comment ?? '');
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    // Пустое поле — это не ноль: Number('') вернул бы 0 и машина завелась
-    // бы с нулевым пробегом. NaN не проходит проверку Zod, и человек видит ошибку.
-    onSubmit({ plate, model, odometerKm: odometer === '' ? Number.NaN : Number(odometer) });
+    onSubmit({ plate, model, comment, odometerKm: odometer === '' ? null : Number(odometer) });
   }
 
   const label = 'mb-1 block text-xs font-medium text-fg-soft';
@@ -59,16 +58,26 @@ export function CarForm({ car, pending, onSubmit, onCancel }: CarFormProps) {
             value={odometer}
             onChange={(event) => setOdometer(event.target.value.replace(/\D/g, ''))}
             inputMode="numeric"
+            required={car?.odometerKm != null}
             placeholder="85136"
           />
         </label>
       </div>
 
-      {/* Одометр новой машины становится начальным показанием первой поездки,
-          поэтому о цене ошибки сказано прямо в форме. */}
-      {!car && (
+      <label className="mt-3 block">
+        <span className={label}>Комментарий</span>
+        <textarea
+          className={FIELD}
+          rows={2}
+          maxLength={500}
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+        />
+      </label>
+
+      {car?.odometerKm == null && (
         <p className="mt-2 text-xs text-fg-soft">
-          Это показание станет начальным для первой поездки — сверьтесь с приборной панелью.
+          Машину можно будет забронировать после заполнения показания одометра.
         </p>
       )}
 

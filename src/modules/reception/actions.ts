@@ -149,9 +149,9 @@ export async function issueKeys(
       .from('cars')
       .select('odometer_km')
       .eq('id', trip.car_id)
-      .maybeSingle<{ odometer_km: number }>();
+      .maybeSingle<{ odometer_km: number | null }>();
 
-    if (carError || !car) {
+    if (carError || !car || car.odometer_km === null) {
       return { success: false, error: 'Не удалось прочитать одометр машины.' };
     }
 

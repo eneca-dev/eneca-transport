@@ -25,6 +25,7 @@ const driverSchema = z.object({
   fullName: z.string().trim().min(3, 'Укажите фамилию и имя').max(120, 'Слишком длинное имя'),
   // Телефон в свободной форме: его набирают руками, а не звонят из приложения.
   phone: z.string().trim().max(30, 'Слишком длинный номер'),
+  comment: z.string().trim().max(500, 'Комментарий слишком длинный').optional(),
 });
 
 export type DriverInput = z.infer<typeof driverSchema>;
@@ -77,7 +78,11 @@ export async function createDriver(
 
     const { error } = await getDb()
       .from('drivers')
-      .insert({ full_name: parsed.data.fullName, phone: parsed.data.phone || null });
+      .insert({
+      full_name: parsed.data.fullName,
+      phone: parsed.data.phone || null,
+      comment: parsed.data.comment || null,
+    });
 
     if (error) {
       return { success: false, error: error.message };
@@ -108,6 +113,7 @@ export async function updateDriver(
       .update({
         full_name: parsed.data.fullName,
         phone: parsed.data.phone || null,
+        comment: parsed.data.comment || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', driverId);

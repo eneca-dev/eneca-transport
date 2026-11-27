@@ -566,6 +566,9 @@ export async function changeCar(
     if (error.code === '23P01') {
       return { ok: false, reason: 'Эта машина занята на время поездки. Выберите другую.' };
     }
+    if (error.code === 'P0001' && error.message === 'car_odometer_required') {
+      return { ok: false, reason: 'Для машины не указано показание одометра. Выберите другую.' };
+    }
     console.error(`Поездка #${tripId}: не удалось сменить машину`, error);
     return { ok: false, reason: 'Не получилось сохранить. Попробуйте ещё раз.' };
   }

@@ -42,7 +42,9 @@ export function CarRow({
           )}
         </div>
         <p className="mt-0.5 text-sm text-fg-soft">
-          одометр {car.odometerKm.toLocaleString('ru-RU')} км
+          {car.odometerKm === null
+            ? 'Пробег не указан'
+            : `Одометр ${car.odometerKm.toLocaleString('ru-RU')} км`}
           {car.inRepair && car.repairSince && (
             <>
               {' · '}в ремонте с {formatDay(new Date(car.repairSince))}

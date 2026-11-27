@@ -24,11 +24,13 @@ import type { RemarkDecision } from './remarks';
 const carSchema = z.object({
   plate: z.string().trim().min(3, 'Укажите номер').max(20, 'Слишком длинный номер'),
   model: z.string().trim().min(2, 'Укажите модель').max(60, 'Слишком длинное название'),
+  comment: z.string().trim().max(500, 'Комментарий слишком длинный').optional(),
   odometerKm: z
     .number({ error: 'Укажите показание одометра' })
     .int('Только целое число')
     .min(0, 'Не может быть отрицательным')
-    .max(10_000_000, 'Слишком большое значение'),
+    .max(10_000_000, 'Слишком большое значение')
+    .nullable(),
 });
 
 export type CarInput = z.infer<typeof carSchema>;
@@ -63,6 +65,7 @@ export async function createCar(token: string, input: CarInput): Promise<ActionR
       plate: parsed.data.plate,
       model: parsed.data.model,
       odometer_km: parsed.data.odometerKm,
+      comment: parsed.data.comment || null,
     });
 
     if (error) {
@@ -102,7 +105,8 @@ export async function updateCar(
       .update({
         plate: parsed.data.plate,
         model: parsed.data.model,
-        odometer_km: parsed.data.odometerKm,
+        ...(parsed.data.odometerKm === null ? {} : { odometer_km: parsed.data.odometerKm }),
+        comment: parsed.data.comment || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', carId);

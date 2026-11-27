@@ -23,6 +23,7 @@ export interface Driver {
   id: string;
   fullName: string;
   phone: string | null;
+  comment: string | null;
   /** Привязан ли Telegram. Сам chat_id в браузер не отдаётся. */
   telegramLinked: boolean;
   telegramLinkedAt: string | null;
@@ -39,6 +40,7 @@ interface DriverRow {
   id: string;
   full_name: string;
   phone: string | null;
+  comment: string | null;
   telegram_linked: boolean;
   telegram_linked_at: string | null;
   telegram_username: string | null;
@@ -75,7 +77,7 @@ export async function listDrivers(): Promise<Driver[]> {
   const { data: drivers, error } = await db
     .from('v_drivers')
     .select(
-      'id, full_name, phone, telegram_linked, telegram_linked_at, ' +
+      'id, full_name, phone, comment, telegram_linked, telegram_linked_at, ' +
         'telegram_username, telegram_display_name, is_active',
     )
     .order('full_name')
@@ -134,6 +136,7 @@ export async function listDrivers(): Promise<Driver[]> {
     id: driver.id,
     fullName: driver.full_name,
     phone: driver.phone,
+    comment: driver.comment,
     telegramLinked: driver.telegram_linked,
     telegramLinkedAt: driver.telegram_linked_at,
     telegramUsername: driver.telegram_username,

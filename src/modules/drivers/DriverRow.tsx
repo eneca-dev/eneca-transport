@@ -72,6 +72,10 @@ export function DriverRow({
             )}
           </div>
 
+          {driver.comment && (
+            <p className="mt-0.5 whitespace-pre-line text-sm text-fg-soft">{driver.comment}</p>
+          )}
+
           <p className="mt-0.5 text-sm text-fg-soft">
             {driver.unavailability.length === 0 ? (
               'Недоступен: —'

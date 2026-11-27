@@ -10,7 +10,8 @@ export interface Car {
   id: string;
   plate: string;
   model: string;
-  odometerKm: number;
+  odometerKm: number | null;
+  comment: string | null;
   isActive: boolean;
   /** Открытый период ремонта: машина в ремонте прямо сейчас. */
   inRepair: boolean;
@@ -25,7 +26,8 @@ interface CarRow {
   id: string;
   plate: string;
   model: string;
-  odometer_km: number;
+  odometer_km: number | null;
+  comment: string | null;
   is_active: boolean;
   in_repair: boolean;
 }
@@ -46,7 +48,7 @@ export async function listCars(): Promise<Car[]> {
 
   const { data: cars, error } = await db
     .from('v_cars')
-    .select('id, plate, model, odometer_km, is_active, in_repair')
+    .select('id, plate, model, comment, odometer_km, is_active, in_repair')
     .order('plate')
     .returns<CarRow[]>();
 
@@ -79,6 +81,7 @@ export async function listCars(): Promise<Car[]> {
       plate: car.plate,
       model: car.model,
       odometerKm: car.odometer_km,
+      comment: car.comment,
       isActive: car.is_active,
       inRepair: car.in_repair,
       repairNote: repair?.note ?? null,

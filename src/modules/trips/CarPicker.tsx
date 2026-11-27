@@ -93,6 +93,9 @@ export function CarPicker({
               <span className="min-w-0">
                 <span className="font-medium">{car.model}</span>{' '}
                 <span className="font-mono text-fg-soft">{car.plate}</span>
+                {car.comment && (
+                  <span className="block whitespace-pre-line text-sm text-fg-soft">{car.comment}</span>
+                )}
                 {car.blocked && (
                   <span className="text-fg-soft"> — {carBlockerText(car.blocked)}</span>
                 )}
